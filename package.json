@@ -1,0 +1,18 @@
+{
+  "name": "webhook-digisac",
+  "version": "1.0.0",
+  "description": "Webhook processor para Digisac",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "lodash": "^4.17.21",
+    "sqlite3": "^5.1.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
