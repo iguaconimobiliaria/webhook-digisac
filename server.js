@@ -9,7 +9,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // Configurações - Porta dinâmica para Render
 const CONFIG = {
-  makeWebhookUrl: 'https://hook.us2.make.com/ujg0vywl5x4zk7v4sqcmt59sf77pv26r',
+  makeWebhookUrl: 'https://hook.us2.make.com/low1xo1nc7wgk45253bpqzsbe63pman8',
   port: process.env.PORT || 3000, // Render usa PORT environment variable
   bufferTime: 20000, // 20 segundos de acumulação
   maxRetries: 3,
