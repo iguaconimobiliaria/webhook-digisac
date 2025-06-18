@@ -217,7 +217,7 @@ async function fetchContactFromDigisac(contactId) {
   try {
     console.log(`🔍 Buscando dados completos do contato ${contactId} na API Digisac`);
     
-    const url = `${CONFIG.digisacApiUrl}/contacts/${contactId}?include[0]=customFieldValues&include[1]=tags&include[2]=tickets`;
+    const url = `${CONFIG.digisacApiUrl}/contacts/${contactId}?include[0]=customFieldValues&include[1]=tags`;
     
     const response = await axios.get(url, {
       headers: {
@@ -253,6 +253,38 @@ async function fetchContactFromDigisac(contactId) {
   }
 }
 
+// Função para buscar tickets do contato na API Digisac
+async function fetchContactTickets(contactId) {
+  try {
+    console.log(`🎫 Buscando tickets do contato ${contactId} na API Digisac`);
+    
+    const url = `${CONFIG.digisacApiUrl}/tickets?where[contactId]=${contactId}`;
+    
+    const response = await axios.get(url, {
+      headers: {
+        'Authorization': `Bearer ${CONFIG.digisacToken}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: CONFIG.requestTimeout
+    });
+
+    console.log(`✅ Tickets do contato ${contactId} obtidos:`, {
+      total: response.data.total,
+      quantidade: response.data.data ? response.data.data.length : 0
+    });
+    
+    return response.data.data || []; // Retorna array de tickets
+    
+  } catch (error) {
+    console.error(`❌ Erro ao buscar tickets do contato ${contactId}:`, error.message);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    return []; // Retorna array vazio em caso de erro
+  }
+}
+
 // Função para extrair email do campo personalizado
 function extractEmailFromCustomFields(customFieldValues) {
   if (!customFieldValues || !Array.isArray(customFieldValues)) {
@@ -285,7 +317,14 @@ function extractSourceFromTags(tags) {
 
 // Função para extrair user ID dos tickets
 function extractUserIdFromTickets(tickets) {
+  console.log('🎫 ANALISANDO TICKETS:', {
+    temTickets: !!tickets,
+    ehArray: Array.isArray(tickets),
+    quantidade: tickets ? tickets.length : 0
+  });
+  
   if (!tickets || !Array.isArray(tickets) || tickets.length === 0) {
+    console.log('⚠️ SEM TICKETS - Usando Admin (ID: 1)');
     return 1; // Admin como padrão
   }
   
@@ -294,8 +333,25 @@ function extractUserIdFromTickets(tickets) {
     new Date(b.createdAt) - new Date(a.createdAt)
   )[0];
   
+  console.log('🎫 TICKET MAIS RECENTE:', {
+    ticketId: latestTicket.id,
+    userId: latestTicket.userId,
+    createdAt: latestTicket.createdAt,
+    status: latestTicket.status
+  });
+  
   const digisacUserId = latestTicket.userId;
-  return USER_ID_MAPPING[digisacUserId] || 1; // Admin como fallback
+  const mappedUserId = USER_ID_MAPPING[digisacUserId];
+  
+  console.log('🔄 MAPEAMENTO USER ID:', {
+    digisacUserId: digisacUserId,
+    mappedUserId: mappedUserId,
+    fallback: mappedUserId || 1
+  });
+  
+  console.log('📋 MAPEAMENTO DISPONÍVEL:', USER_ID_MAPPING);
+  
+  return mappedUserId || 1; // Admin como fallback
 }
 
 // Função para formatar telefone (apenas números limpos - máximo 11 caracteres)
@@ -311,15 +367,64 @@ function formatPhoneNumber(number) {
     tamanho: cleanNumber.length
   });
   
+  // Lista de DDDs brasileiros válidos
+  const brazilianDDDs = [
+    '11', '12', '13', '14', '15', '16', '17', '18', '19', // SP
+    '21', '22', '24', // RJ
+    '27', '28', // ES
+    '31', '32', '33', '34', '35', '37', '38', // MG
+    '41', '42', '43', '44', '45', '46', // PR
+    '47', '48', '49', // SC
+    '51', '53', '54', '55', // RS
+    '61', // DF
+    '62', '64', // GO
+    '63', // TO
+    '65', '66', // MT
+    '67', // MS
+    '68', // AC
+    '69', // RO
+    '71', '73', '74', '75', '77', // BA
+    '79', // SE
+    '81', '87', // PE
+    '82', // AL
+    '83', // PB
+    '84', // RN
+    '85', '88', // CE
+    '86', '89', // PI
+    '91', '93', '94', // PA
+    '92', '97', // AM
+    '95', // RR
+    '96', // AP
+    '98', '99' // MA
+  ];
+  
+  let brazilianNumber = '';
+  let isBrazilian = false;
+  
   // Verifica se é número brasileiro (código 55)
   if (cleanNumber.startsWith('55') && cleanNumber.length >= 12) {
-    const brazilianNumber = cleanNumber.substring(2); // Remove o 55
-    
-    console.log(`📱 NÚMERO BRASILEIRO:`, {
+    brazilianNumber = cleanNumber.substring(2); // Remove o 55
+    isBrazilian = true;
+    console.log(`📱 NÚMERO BRASILEIRO (com código 55):`, {
       semCodigo: brazilianNumber,
       tamanho: brazilianNumber.length
     });
-    
+  }
+  // Verifica se é número brasileiro (sem código 55, mas com DDD brasileiro)
+  else if (cleanNumber.length >= 10 && cleanNumber.length <= 11) {
+    const possibleDDD = cleanNumber.substring(0, 2);
+    if (brazilianDDDs.includes(possibleDDD)) {
+      brazilianNumber = cleanNumber;
+      isBrazilian = true;
+      console.log(`📱 NÚMERO BRASILEIRO (sem código 55, DDD ${possibleDDD}):`, {
+        numero: brazilianNumber,
+        tamanho: brazilianNumber.length,
+        ddd: possibleDDD
+      });
+    }
+  }
+  
+  if (isBrazilian) {
     // Retorna apenas números limpos (sem formatação) - FORÇA LIMITE DE 11
     if (brazilianNumber.length >= 11) {
       const finalNumber = brazilianNumber.substring(0, 11); // FORÇA máximo 11
@@ -371,12 +476,12 @@ function formatPhoneNumber(number) {
 }
 
 // Função para transformar dados para formato do CRM
-async function transformToCrmFormat(contactData, digisacApiData) {
+async function transformToCrmFormat(contactData, digisacApiData, contactTickets) {
   try {
     const { cellNumber, phoneNumber, internationalPhoneNumber } = formatPhoneNumber(contactData.number);
     const email = extractEmailFromCustomFields(digisacApiData.customFieldValues);
     const source = extractSourceFromTags(digisacApiData.tags);
-    const userId = extractUserIdFromTickets(digisacApiData.tickets);
+    const userId = extractUserIdFromTickets(contactTickets); // Agora usa tickets separados
     
     // Usar o ID real do contato da Digisac
     const contactId = contactData.id;
@@ -390,19 +495,19 @@ async function transformToCrmFormat(contactData, digisacApiData) {
     };
     
     // Se tem tickets, pega dados do usuário do ticket mais recente
-    if (digisacApiData.tickets && digisacApiData.tickets.length > 0) {
-      const latestTicket = digisacApiData.tickets.sort((a, b) => 
+    if (contactTickets && contactTickets.length > 0) {
+      const latestTicket = contactTickets.sort((a, b) => 
         new Date(b.createdAt) - new Date(a.createdAt)
       )[0];
       
-      if (latestTicket.user) {
-        userData = {
-          id: USER_ID_MAPPING[latestTicket.userId] || userId,
-          username: latestTicket.user.username || "elliot",
-          email: latestTicket.user.email || "elliot@email.com",
-          name: latestTicket.user.name || "Elliot Alderson"
-        };
-      }
+      // Tickets da API separada não incluem dados do user, só userId
+      // Então mantemos os dados fixos como solicitado
+      userData = {
+        id: USER_ID_MAPPING[latestTicket.userId] || userId,
+        username: "elliot", // Fixo conforme solicitado
+        email: "elliot@email.com", // Fixo conforme solicitado
+        name: "Elliot Alderson" // Fixo conforme solicitado
+      };
     }
     
     const crmPayload = {
@@ -498,14 +603,17 @@ async function processBuffer() {
         // 1. Busca dados completos na API Digisac
         const digisacApiData = await fetchContactFromDigisac(contactData.id);
         
-        // 2. Transforma para formato do CRM
-        const crmPayload = await transformToCrmFormat(contactData, digisacApiData);
+        // 2. Busca tickets do contato separadamente
+        const contactTickets = await fetchContactTickets(contactData.id);
         
-        // 3. GERA TOKEN APENAS AGORA (depois de verificar mudanças e formatar dados)
+        // 3. Transforma para formato do CRM (agora com tickets corretos)
+        const crmPayload = await transformToCrmFormat(contactData, digisacApiData, contactTickets);
+        
+        // 4. GERA TOKEN APENAS AGORA (depois de verificar mudanças e formatar dados)
         console.log('🔑 Gerando token CRM apenas agora...');
         const crmToken = await getCrmToken();
         
-        // 4. Envia para CRM com token gerado
+        // 5. Envia para CRM com token gerado
         const success = await sendToCrmDirect(contactData.id, crmPayload, crmToken);
         
         if (success) {
