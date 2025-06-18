@@ -215,9 +215,11 @@ app.post('/webhook', validateWebhookData, async (req, res) => {
 // Função para buscar dados completos do contato na API Digisac
 async function fetchContactFromDigisac(contactId) {
   try {
-    console.log(`🔍 Buscando dados completos do contato ${contactId} na API Digisac`);
+    console.log(`🔍 [FETCH] Buscando dados completos do contato ${contactId} na API Digisac`);
     
     const url = `${CONFIG.digisacApiUrl}/contacts/${contactId}?include[0]=customFieldValues&include[1]=tags`;
+    console.log(`🔗 [FETCH] URL da requisição: ${url}`);
+    console.log(`🔑 [FETCH] Token: ${CONFIG.digisacToken ? 'PRESENTE' : 'AUSENTE'}`);
     
     const response = await axios.get(url, {
       headers: {
@@ -227,7 +229,9 @@ async function fetchContactFromDigisac(contactId) {
       timeout: CONFIG.requestTimeout
     });
 
-    console.log(`✅ Dados do contato ${contactId} obtidos com sucesso`);
+    console.log(`✅ [FETCH] Dados do contato ${contactId} obtidos com sucesso`);
+    console.log(`📊 [FETCH] Status da resposta: ${response.status}`);
+    console.log(`📊 [FETCH] CustomFieldValues encontrados: ${response.data?.customFieldValues?.length || 0}`);
     
     // Cache dos dados para evitar consultas desnecessárias
     await new Promise((resolve, reject) => {
@@ -244,10 +248,15 @@ async function fetchContactFromDigisac(contactId) {
     return response.data;
     
   } catch (error) {
-    console.error(`❌ Erro ao buscar contato ${contactId} na API Digisac:`, error.message);
+    console.error(`❌ [FETCH] ERRO CRÍTICO ao buscar contato ${contactId} na API Digisac:`);
+    console.error(`📊 [FETCH] Tipo do erro:`, error.constructor.name);
+    console.error(`📊 [FETCH] Mensagem:`, error.message);
+    console.error(`📊 [FETCH] Stack trace:`, error.stack);
     if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
+      console.error(`📊 [FETCH] Response status:`, error.response.status);
+      console.error(`📊 [FETCH] Response data:`, error.response.data);
+    } else if (error.request) {
+      console.error(`📊 [FETCH] Request sem resposta:`, error.request);
     }
     throw error;
   }
@@ -586,9 +595,77 @@ async function processBuffer() {
         );
       });
       
-      // Verifica se houve mudanças nos campos monitorados
-      if (hasFieldsChanged(currentData, lastSentData)) {
-        contactsToSend.push(currentData);
+      // Busca dados da API Digisac para comparação de campos personalizados
+      let currentApiData = null;
+      let previousApiData = null;
+      
+      console.log(`🚀 INICIANDO BUSCA DE DADOS DA API PARA ${contactId}`);
+      
+      try {
+        console.log(`🔍 Buscando dados da API Digisac para ${contactId}...`);
+        currentApiData = await fetchContactFromDigisac(contactId);
+        console.log(`✅ DADOS DA API RECEBIDOS COM SUCESSO`);
+        
+        console.log(`📋 DADOS ATUAIS DA API:`, {
+          id: currentApiData?.id,
+          name: currentApiData?.name,
+          customFieldValues: currentApiData?.customFieldValues?.length || 0,
+          customFields: currentApiData?.customFieldValues?.map(cf => ({
+            id: cf.customFieldId,
+            value: cf.value
+          })) || []
+        });
+        
+        // Busca dados anteriores do cache se existir
+        if (lastSentData) {
+          console.log(`🔍 Buscando dados anteriores do cache para ${contactId}...`);
+          const cachedData = await new Promise((resolve, reject) => {
+            db.get(
+              'SELECT api_data FROM digisac_cache WHERE contact_id = ?',
+              [contactId],
+              (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+              }
+            );
+          });
+          
+          if (cachedData && cachedData.api_data) {
+            try {
+              previousApiData = JSON.parse(cachedData.api_data);
+              console.log(`📋 DADOS ANTERIORES DO CACHE:`, {
+                id: previousApiData?.id,
+                name: previousApiData?.name,
+                customFieldValues: previousApiData?.customFieldValues?.length || 0,
+                customFields: previousApiData?.customFieldValues?.map(cf => ({
+                  id: cf.customFieldId,
+                  value: cf.value
+                })) || []
+              });
+            } catch (e) {
+              console.log(`⚠️ Erro ao parsear dados anteriores do cache para ${contactId}: ${e.message}`);
+            }
+          } else {
+            console.log(`ℹ️ Nenhum cache anterior encontrado para ${contactId}`);
+          }
+        } else {
+          console.log(`ℹ️ Primeiro envio para ${contactId} - sem dados anteriores`);
+        }
+      } catch (error) {
+        console.log(`❌ ERRO CRÍTICO ao buscar dados da API para comparação:`);
+        console.log(`📊 Tipo do erro:`, error.constructor.name);
+        console.log(`📊 Mensagem:`, error.message);
+        console.log(`📊 Stack trace:`, error.stack);
+        console.log(`📊 Código de status:`, error.response?.status);
+        console.log(`📊 Dados da resposta:`, error.response?.data);
+      }
+      
+      // Verifica se houve mudanças nos campos monitorados (incluindo campos personalizados)
+      if (hasFieldsChanged(currentData, lastSentData, currentApiData, previousApiData)) {
+        contactsToSend.push({ 
+          ...currentData, 
+          apiData: currentApiData 
+        });
         console.log(`✅ ADICIONADO PARA ENVIO: ${contactId}`);
       } else {
         console.log(`⏭️ SEM MUDANÇAS: ${contactId}`);
@@ -600,8 +677,8 @@ async function processBuffer() {
     // Processa e envia para CRM
     for (const contactData of contactsToSend) {
       try {
-        // 1. Busca dados completos na API Digisac
-        const digisacApiData = await fetchContactFromDigisac(contactData.id);
+        // 1. Usa dados da API já buscados ou busca novamente se necessário
+        const digisacApiData = contactData.apiData || await fetchContactFromDigisac(contactData.id);
         
         // 2. Busca tickets do contato separadamente
         const contactTickets = await fetchContactTickets(contactData.id);
@@ -626,7 +703,21 @@ async function processBuffer() {
               [contactData.id, contactData.name, contactData.number, contactData.note, contactData.timestamp],
               function(err) {
                 if (err) reject(err);
-                else resolve(this.changes);
+                else resolve();
+              }
+            );
+          });
+          
+          // Atualiza cache da API Digisac para próximas comparações
+          await new Promise((resolve, reject) => {
+            db.run(
+              `INSERT OR REPLACE INTO digisac_cache 
+               (contact_id, api_data) 
+               VALUES (?, ?)`,
+              [contactData.id, JSON.stringify(digisacApiData)],
+              function(err) {
+                if (err) reject(err);
+                else resolve();
               }
             );
           });
@@ -654,7 +745,9 @@ async function processBuffer() {
 }
 
 // Função para comparar campos específicos
-function hasFieldsChanged(current, previous) {
+function hasFieldsChanged(current, previous, currentApiData = null, previousApiData = null) {
+  console.log(`🔍 INICIANDO COMPARAÇÃO PARA ${current.id}`);
+  
   if (!previous) {
     console.log(`🆕 Primeiro registro para ID ${current.id} - enviando`);
     return true;
@@ -672,13 +765,98 @@ function hasFieldsChanged(current, previous) {
   const noteChanged = currentNote !== previousNote;
   const numberChanged = currentNumber !== previousNumber;
   
-  console.log(`🔍 COMPARAÇÃO PARA ${current.id}:`, {
-    name: { atual: currentName, anterior: previousName, mudou: nameChanged },
-    note: { atual: currentNote, anterior: previousNote, mudou: noteChanged },
-    number: { atual: currentNumber, anterior: previousNumber, mudou: numberChanged }
+  // Verificar mudanças em campos personalizados (customFieldValues)
+  let customFieldsChanged = false;
+  
+  console.log(`🔍 VERIFICANDO CAMPOS PERSONALIZADOS:`, {
+    temCurrentApiData: !!currentApiData,
+    temPreviousApiData: !!previousApiData,
+    currentCustomFieldsLength: currentApiData?.customFieldValues?.length || 0,
+    previousCustomFieldsLength: previousApiData?.customFieldValues?.length || 0
   });
   
-  return nameChanged || noteChanged || numberChanged;
+  if (currentApiData && currentApiData.customFieldValues && previousApiData && previousApiData.customFieldValues) {
+    console.log(`🔍 COMPARANDO CAMPOS PERSONALIZADOS (ambos existem)`);
+    const currentCustomFields = currentApiData.customFieldValues || [];
+    const previousCustomFields = previousApiData.customFieldValues || [];
+    
+    // Criar mapas para comparação mais eficiente
+    const currentFieldsMap = new Map();
+    const previousFieldsMap = new Map();
+    
+    // Mapeamento de customFieldId para nome legível
+    const customFieldIdMap = {
+      '1e9f04d2-2c6f-4020-9965-49a0b47d16ca': 'Email',
+      '0ac527a5-8d20-4ab1-81d9-c2b17a92585e': 'Campo2' // Adicione outros IDs conforme necessário
+    };
+    
+    currentCustomFields.forEach(field => {
+      if (field.customFieldId) {
+        const fieldName = customFieldIdMap[field.customFieldId] || field.customFieldId;
+        currentFieldsMap.set(fieldName, field.value || '');
+      }
+    });
+    
+    previousCustomFields.forEach(field => {
+      if (field.customFieldId) {
+        const fieldName = customFieldIdMap[field.customFieldId] || field.customFieldId;
+        previousFieldsMap.set(fieldName, field.value || '');
+      }
+    });
+    
+    console.log(`📋 MAPA CAMPOS ATUAIS:`, Array.from(currentFieldsMap.entries()));
+    console.log(`📋 MAPA CAMPOS ANTERIORES:`, Array.from(previousFieldsMap.entries()));
+    
+    // Verificar se algum campo personalizado mudou
+    for (const [fieldName, currentValue] of currentFieldsMap) {
+      const previousValue = previousFieldsMap.get(fieldName) || '';
+      console.log(`🔍 COMPARANDO CAMPO "${fieldName}": atual="${currentValue}" vs anterior="${previousValue}"`);
+      if (currentValue !== previousValue) {
+        customFieldsChanged = true;
+        console.log(`🔄 CAMPO PERSONALIZADO ALTERADO: ${fieldName}`, {
+          anterior: previousValue,
+          atual: currentValue
+        });
+        break;
+      }
+    }
+    // Verificar se algum campo foi removido
+    if (!customFieldsChanged) {
+      console.log(`🔍 VERIFICANDO CAMPOS REMOVIDOS...`);
+      for (const [fieldName, previousValue] of previousFieldsMap) {
+        if (!currentFieldsMap.has(fieldName) && previousValue) {
+          customFieldsChanged = true;
+          console.log(`🗑️ CAMPO PERSONALIZADO REMOVIDO: ${fieldName}`, {
+            anterior: previousValue,
+            atual: ''
+          });
+          break;
+        }
+      }
+    }
+  } else if (currentApiData && currentApiData.customFieldValues && currentApiData.customFieldValues.length > 0) {
+    // Se há campos personalizados agora mas não havia antes
+    console.log(`🆕 NOVOS CAMPOS PERSONALIZADOS ADICIONADOS`);
+    customFieldsChanged = true;
+  } else if (previousApiData && previousApiData.customFieldValues && previousApiData.customFieldValues.length > 0) {
+    // Se havia campos personalizados antes mas não há mais
+    console.log(`🗑️ CAMPOS PERSONALIZADOS REMOVIDOS`);
+    customFieldsChanged = true;
+  } else {
+    console.log(`ℹ️ Nenhum campo personalizado para comparar`);
+  }
+  
+  console.log(`📊 RESULTADO FINAL DA COMPARAÇÃO:`, {
+    name: { atual: currentName, anterior: previousName, mudou: nameChanged },
+    note: { atual: currentNote, anterior: previousNote, mudou: noteChanged },
+    number: { atual: currentNumber, anterior: previousNumber, mudou: numberChanged },
+    customFields: { mudou: customFieldsChanged }
+  });
+  
+  const hasChanges = nameChanged || noteChanged || numberChanged || customFieldsChanged;
+  console.log(`🎯 DECISÃO FINAL: ${hasChanges ? 'ENVIAR' : 'NÃO ENVIAR'} (${hasChanges})`);
+  
+  return hasChanges;
 }
 
 async function sendToCrmDirect(contactId, payload, crmToken) {
