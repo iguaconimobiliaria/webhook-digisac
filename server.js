@@ -502,6 +502,28 @@ function getPreferredName(contactData, digisacApiData) {
   console.log(`📝 USANDO NAME ORIGINAL: "${contactData.name}"`);
   return contactData.name;
 }
+// Função para verificar se o note mudou e retornar valor apropriado
+function getObservationValue(currentNote, lastSentNote) {
+  // Se não há note atual, retorna vazio
+  if (!currentNote || currentNote.trim() === '') {
+    console.log(`📝 NOTE VAZIO - Enviando observation vazia`);
+    return '';
+  }
+  
+  // Se o note é igual ao último enviado, retorna vazio para não duplicar
+  if (currentNote === lastSentNote) {
+    console.log(`📝 NOTE IGUAL AO ANTERIOR - Enviando observation vazia para evitar duplicação`);
+    console.log(`📝 Note atual: "${currentNote}"`);
+    console.log(`📝 Note anterior: "${lastSentNote}"`);
+    return '';
+  }
+  
+  // Se o note mudou, envia o novo valor
+  console.log(`📝 NOTE ALTERADO - Enviando nova observation`);
+  console.log(`📝 Note anterior: "${lastSentNote}"`);
+  console.log(`📝 Note atual: "${currentNote}"`);
+  return currentNote;
+}
 
 // Função para transformar dados para formato do CRM
 async function transformToCrmFormat(contactData, digisacApiData, contactTickets) {
@@ -548,8 +570,8 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       phoneNumber: phoneNumber,
       internationalPhoneNumber: internationalPhoneNumber,
       email: email,
-      observation: contactData.note,
-      observationLead: contactData.note ? contactData.note.substring(0, 150) : '', // Limitado a 150 caracteres
+      observation: getObservationValue(contactData.note, contactData.lastSentNote),
+      observationLead: getObservationValue(contactData.note, contactData.lastSentNote).substring(0, 150), // Limitado a 150 caracteres
       user: {
         id: userId, // ID mapeado do atendente Digisac → CRM
         username: "elliot", // Fixo
