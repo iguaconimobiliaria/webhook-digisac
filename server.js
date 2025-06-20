@@ -21,13 +21,14 @@ const CONFIG = {
   requestTimeout: 15000
 };
 
-// Mapeamentos de IDs
+// Mapeamentos de IDs - INCLUINDO KLEO
 const USER_ID_MAPPING = {
   '64a82223-f414-4ad2-9275-eb20154de6dc': 87, // Cleusa
   'ec2b04ae-939b-4da5-90e0-f3702a007f5d': 1,  // Admin
   '48b2180f-55d2-4b4d-a9b7-9b583c7ac599': 77, // Suelin
   'ee5fa9f0-e203-4138-b0e1-48c6d23d3d3c': 49, // Lucas
-  '9802485b-9f3e-45a9-91fa-891e37918e3d': 12  // Lucia
+  '9802485b-9f3e-45a9-91fa-891e37918e3d': 12, // Lucia
+  'e97e9a59-72fb-4b10-a1e9-13eee1fbb1ea': 27  // Kleo
 };
 
 const TAG_SOURCE_MAPPING = {
@@ -522,7 +523,7 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
     const crmPayload = {
       // ID removido - CRM vai gerar automaticamente
       name: contactData.name,
-      classification: "high",
+      classification: "High", // CORRIGIDO: "High" com H maiúsculo
       interestedIn: "buy",
       source: source,
       cellNumber: cellNumber,
@@ -530,7 +531,7 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       internationalPhoneNumber: internationalPhoneNumber,
       email: email,
       observation: contactData.note,
-      observationLead: contactData.note,
+      observationLead: contactData.note ? contactData.note.substring(0, 150) : '', // Limitado a 150 caracteres
       user: {
         id: userId, // ID mapeado do atendente Digisac → CRM
         username: "elliot", // Fixo
@@ -548,13 +549,17 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
     };
     
     console.log(`🔄 Dados transformados para CRM:`, {
-      leadId: 'AUTO_GENERATED', // CRM vai gerar automaticamente
       contactId: contactData.id,
       name: crmPayload.name,
+      classification: crmPayload.classification,
       source: crmPayload.source,
+      cellNumber: crmPayload.cellNumber,
+      phoneNumber: crmPayload.phoneNumber,
+      internationalPhoneNumber: crmPayload.internationalPhoneNumber,
       email: crmPayload.email,
-      userId: crmPayload.user.id, // ID mapeado do atendente
-      userName: crmPayload.user.name
+      userId: crmPayload.user.id,
+      observationLength: crmPayload.observation?.length || 0,
+      observationLeadLength: crmPayload.observationLead?.length || 0
     });
     
     return crmPayload;
@@ -599,420 +604,265 @@ async function processBuffer() {
       let currentApiData = null;
       let previousApiData = null;
       
-      console.log(`🚀 INICIANDO BUSCA DE DADOS DA API PARA ${contactId}`);
-      
       try {
-        console.log(`🔍 Buscando dados da API Digisac para ${contactId}...`);
+        console.log(`🚀 INICIANDO BUSCA DE DADOS DA API PARA ${contactId}`);
         currentApiData = await fetchContactFromDigisac(contactId);
-        console.log(`✅ DADOS DA API RECEBIDOS COM SUCESSO`);
         
-        console.log(`📋 DADOS ATUAIS DA API:`, {
-          id: currentApiData?.id,
-          name: currentApiData?.name,
-          customFieldValues: currentApiData?.customFieldValues?.length || 0,
-          customFields: currentApiData?.customFieldValues?.map(cf => ({
-            id: cf.customFieldId,
-            value: cf.value
-          })) || []
+        // Busca dados anteriores do cache
+        const cachedData = await new Promise((resolve, reject) => {
+          db.get(
+            'SELECT api_data FROM digisac_cache WHERE contact_id = ?',
+            [contactId],
+            (err, row) => {
+              if (err) reject(err);
+              else resolve(row ? JSON.parse(row.api_data) : null);
+            }
+          );
         });
         
-        // Busca dados anteriores do cache se existir
-        if (lastSentData) {
-          console.log(`🔍 Buscando dados anteriores do cache para ${contactId}...`);
-          const cachedData = await new Promise((resolve, reject) => {
-            db.get(
-              'SELECT api_data FROM digisac_cache WHERE contact_id = ?',
-              [contactId],
-              (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
-              }
-            );
-          });
-          
-          if (cachedData && cachedData.api_data) {
-            try {
-              previousApiData = JSON.parse(cachedData.api_data);
-              console.log(`📋 DADOS ANTERIORES DO CACHE:`, {
-                id: previousApiData?.id,
-                name: previousApiData?.name,
-                customFieldValues: previousApiData?.customFieldValues?.length || 0,
-                customFields: previousApiData?.customFieldValues?.map(cf => ({
-                  id: cf.customFieldId,
-                  value: cf.value
-                })) || []
-              });
-            } catch (e) {
-              console.log(`⚠️ Erro ao parsear dados anteriores do cache para ${contactId}: ${e.message}`);
-            }
-          } else {
-            console.log(`ℹ️ Nenhum cache anterior encontrado para ${contactId}`);
-          }
-        } else {
-          console.log(`ℹ️ Primeiro envio para ${contactId} - sem dados anteriores`);
-        }
+        previousApiData = cachedData;
+        
       } catch (error) {
-        console.log(`❌ ERRO CRÍTICO ao buscar dados da API para comparação:`);
-        console.log(`📊 Tipo do erro:`, error.constructor.name);
-        console.log(`📊 Mensagem:`, error.message);
-        console.log(`📊 Stack trace:`, error.stack);
-        console.log(`📊 Código de status:`, error.response?.status);
-        console.log(`📊 Dados da resposta:`, error.response?.data);
+        console.error(`❌ Erro ao buscar dados da API para ${contactId}:`, error.message);
+        // Continua sem dados da API se houver erro
       }
       
-      // Verifica se houve mudanças nos campos monitorados (incluindo campos personalizados)
-      if (hasFieldsChanged(currentData, lastSentData, currentApiData, previousApiData)) {
-        contactsToSend.push({ 
-          ...currentData, 
-          apiData: currentApiData 
-        });
-        console.log(`✅ ADICIONADO PARA ENVIO: ${contactId}`);
+      // Verifica se houve mudanças nos campos principais ou personalizados
+      const hasChanges = hasFieldsChanged(currentData, lastSentData, currentApiData, previousApiData);
+      
+      if (hasChanges) {
+        console.log(`✅ MUDANÇAS DETECTADAS - Adicionando à lista de envio: ${contactId}`);
+        contactsToSend.push(currentData);
       } else {
-        console.log(`⏭️ SEM MUDANÇAS: ${contactId}`);
+        console.log(`ℹ️ SEM MUDANÇAS - Ignorando: ${contactId}`);
       }
     }
     
+    console.log(`📊 SEM MUDANÇAS: ${dataBuffer.size - contactsToSend.length} contatos`);
     console.log(`📤 TOTAL PARA PROCESSAR E ENVIAR AO CRM: ${contactsToSend.length}`);
     
-    // Processa e envia para CRM
+    // Processa cada contato que precisa ser enviado
     for (const contactData of contactsToSend) {
       try {
-        // 1. Usa dados da API já buscados ou busca novamente se necessário
-        const digisacApiData = contactData.apiData || await fetchContactFromDigisac(contactData.id);
-        
-        // 2. Busca tickets do contato separadamente
-        const contactTickets = await fetchContactTickets(contactData.id);
-        
-        // 3. Transforma para formato do CRM (agora com tickets corretos)
-        const crmPayload = await transformToCrmFormat(contactData, digisacApiData, contactTickets);
-        
-        // 4. GERA TOKEN APENAS AGORA (depois de verificar mudanças e formatar dados)
-        console.log('🔑 Gerando token CRM apenas agora...');
-        const crmToken = await getCrmToken();
-        
-        // 5. Envia para CRM com token gerado
-        const success = await sendToCrmDirect(contactData.id, crmPayload, crmToken);
-        
-        if (success) {
-          // Salva no banco como "enviado" para próximas comparações
-          await new Promise((resolve, reject) => {
-            db.run(
-              `INSERT OR REPLACE INTO sent_data 
-               (id, name, number, note, timestamp) 
-               VALUES (?, ?, ?, ?, ?)`,
-              [contactData.id, contactData.name, contactData.number, contactData.note, contactData.timestamp],
-              function(err) {
-                if (err) reject(err);
-                else resolve();
-              }
-            );
-          });
-          
-          // Atualiza cache da API Digisac para próximas comparações
-          await new Promise((resolve, reject) => {
-            db.run(
-              `INSERT OR REPLACE INTO digisac_cache 
-               (contact_id, api_data) 
-               VALUES (?, ?)`,
-              [contactData.id, JSON.stringify(digisacApiData)],
-              function(err) {
-                if (err) reject(err);
-                else resolve();
-              }
-            );
-          });
-          
-          console.log(`💾 Dados salvos como enviados: ${contactData.id}`);
-        }
-        
+        await processContact(contactData);
       } catch (error) {
         console.error(`❌ Erro ao processar contato ${contactData.id}:`, error.message);
-        await logSendAttempt(contactData.id, {}, 'error', error.message, 'PROCESSING_ERROR');
       }
     }
-    
-    // Limpa o buffer após processamento
-    console.log(`🧹 Limpando buffer (${dataBuffer.size} registros removidos)`);
-    dataBuffer.clear();
-    bufferTimer = null;
-    
-    console.log('✅ PROCESSAMENTO DO BUFFER CONCLUÍDO');
     
   } catch (error) {
     console.error('❌ Erro no processamento do buffer:', error.message);
+  } finally {
+    // Limpa o buffer e reseta o timer
+    console.log(`🧹 Limpando buffer (${dataBuffer.size} registros removidos)`);
+    dataBuffer.clear();
     bufferTimer = null;
+    console.log('✅ PROCESSAMENTO DO BUFFER CONCLUÍDO');
   }
 }
 
-// Função para comparar campos específicos
-function hasFieldsChanged(current, previous, currentApiData = null, previousApiData = null) {
-  console.log(`🔍 INICIANDO COMPARAÇÃO PARA ${current.id}`);
-  
-  if (!previous) {
-    console.log(`🆕 Primeiro registro para ID ${current.id} - enviando`);
+// Função para verificar se houve mudanças nos campos
+function hasFieldsChanged(currentData, lastSentData, currentApiData, previousApiData) {
+  // Se nunca foi enviado, sempre envia
+  if (!lastSentData) {
+    console.log(`🆕 PRIMEIRO ENVIO - Contato ${currentData.id} nunca foi enviado`);
     return true;
   }
   
-  const currentName = current.name || '';
-  const currentNote = current.note || '';
-  const currentNumber = current.number || '';
+  // Verifica mudanças nos campos principais
+  const fieldsChanged = 
+    currentData.name !== lastSentData.name ||
+    currentData.number !== lastSentData.number ||
+    currentData.note !== lastSentData.note;
   
-  const previousName = previous.name || '';
-  const previousNote = previous.note || '';
-  const previousNumber = previous.number || '';
+  if (fieldsChanged) {
+    console.log(`🔄 CAMPOS PRINCIPAIS ALTERADOS - Contato ${currentData.id}:`, {
+      name: { anterior: lastSentData.name, atual: currentData.name },
+      number: { anterior: lastSentData.number, atual: currentData.number },
+      note: { anterior: lastSentData.note, atual: currentData.note }
+    });
+    return true;
+  }
   
-  const nameChanged = currentName !== previousName;
-  const noteChanged = currentNote !== previousNote;
-  const numberChanged = currentNumber !== previousNumber;
-  
-  // Verificar mudanças em campos personalizados (customFieldValues)
-  let customFieldsChanged = false;
-  
-  console.log(`🔍 VERIFICANDO CAMPOS PERSONALIZADOS:`, {
-    temCurrentApiData: !!currentApiData,
-    temPreviousApiData: !!previousApiData,
-    currentCustomFieldsLength: currentApiData?.customFieldValues?.length || 0,
-    previousCustomFieldsLength: previousApiData?.customFieldValues?.length || 0
-  });
-  
-  if (currentApiData && currentApiData.customFieldValues && previousApiData && previousApiData.customFieldValues) {
-    console.log(`🔍 COMPARANDO CAMPOS PERSONALIZADOS (ambos existem)`);
-    const currentCustomFields = currentApiData.customFieldValues || [];
-    const previousCustomFields = previousApiData.customFieldValues || [];
+  // Verifica mudanças nos campos personalizados
+  if (currentApiData && previousApiData) {
+    console.log(`🔍 VERIFICANDO CAMPOS PERSONALIZADOS:`, {
+      temCurrentApiData: !!currentApiData,
+      temPreviousApiData: !!previousApiData,
+      currentCustomFields: currentApiData.customFieldValues?.length || 0,
+      previousCustomFields: previousApiData.customFieldValues?.length || 0
+    });
     
-    // Criar mapas para comparação mais eficiente
-    const currentFieldsMap = new Map();
-    const previousFieldsMap = new Map();
+    const customFieldsChanged = hasCustomFieldsChanged(
+      currentApiData.customFieldValues,
+      previousApiData.customFieldValues
+    );
     
-    // Mapeamento de customFieldId para nome legível
-    const customFieldIdMap = {
-      '1e9f04d2-2c6f-4020-9965-49a0b47d16ca': 'Email',
-      '0ac527a5-8d20-4ab1-81d9-c2b17a92585e': 'Campo2' // Adicione outros IDs conforme necessário
-    };
-    
+    if (customFieldsChanged) {
+      console.log(`🔄 CAMPOS PERSONALIZADOS ALTERADOS - Contato ${currentData.id}`);
+      return true;
+    }
+  }
+  
+  console.log(`ℹ️ NENHUMA MUDANÇA DETECTADA - Contato ${currentData.id}`);
+  return false;
+}
+
+// Função para verificar mudanças em campos personalizados
+function hasCustomFieldsChanged(currentCustomFields, previousCustomFields) {
+  // Mapeamento de IDs para nomes legíveis
+  const CUSTOM_FIELD_NAMES = {
+    '1e9f04d2-2c6f-4020-9965-49a0b47d16ca': 'Email',
+    '0ac527a5-8d20-4ab1-81d9-c2b17a92585e': 'Campo2'
+  };
+  
+  // Converte arrays para mapas para facilitar comparação
+  const currentMap = new Map();
+  const previousMap = new Map();
+  
+  if (currentCustomFields && Array.isArray(currentCustomFields)) {
     currentCustomFields.forEach(field => {
-      if (field.customFieldId) {
-        const fieldName = customFieldIdMap[field.customFieldId] || field.customFieldId;
-        currentFieldsMap.set(fieldName, field.value || '');
-      }
+      const fieldName = CUSTOM_FIELD_NAMES[field.customFieldId] || field.customFieldId;
+      currentMap.set(fieldName, field.value || '');
     });
-    
-    previousCustomFields.forEach(field => {
-      if (field.customFieldId) {
-        const fieldName = customFieldIdMap[field.customFieldId] || field.customFieldId;
-        previousFieldsMap.set(fieldName, field.value || '');
-      }
-    });
-    
-    console.log(`📋 MAPA CAMPOS ATUAIS:`, Array.from(currentFieldsMap.entries()));
-    console.log(`📋 MAPA CAMPOS ANTERIORES:`, Array.from(previousFieldsMap.entries()));
-    
-    // Verificar se algum campo personalizado mudou
-    for (const [fieldName, currentValue] of currentFieldsMap) {
-      const previousValue = previousFieldsMap.get(fieldName) || '';
-      console.log(`🔍 COMPARANDO CAMPO "${fieldName}": atual="${currentValue}" vs anterior="${previousValue}"`);
-      if (currentValue !== previousValue) {
-        customFieldsChanged = true;
-        console.log(`🔄 CAMPO PERSONALIZADO ALTERADO: ${fieldName}`, {
-          anterior: previousValue,
-          atual: currentValue
-        });
-        break;
-      }
-    }
-    // Verificar se algum campo foi removido
-    if (!customFieldsChanged) {
-      console.log(`🔍 VERIFICANDO CAMPOS REMOVIDOS...`);
-      for (const [fieldName, previousValue] of previousFieldsMap) {
-        if (!currentFieldsMap.has(fieldName) && previousValue) {
-          customFieldsChanged = true;
-          console.log(`🗑️ CAMPO PERSONALIZADO REMOVIDO: ${fieldName}`, {
-            anterior: previousValue,
-            atual: ''
-          });
-          break;
-        }
-      }
-    }
-  } else if (currentApiData && currentApiData.customFieldValues && currentApiData.customFieldValues.length > 0) {
-    // Se há campos personalizados agora mas não havia antes
-    console.log(`🆕 NOVOS CAMPOS PERSONALIZADOS ADICIONADOS`);
-    customFieldsChanged = true;
-  } else if (previousApiData && previousApiData.customFieldValues && previousApiData.customFieldValues.length > 0) {
-    // Se havia campos personalizados antes mas não há mais
-    console.log(`🗑️ CAMPOS PERSONALIZADOS REMOVIDOS`);
-    customFieldsChanged = true;
-  } else {
-    console.log(`ℹ️ Nenhum campo personalizado para comparar`);
   }
   
-  console.log(`📊 RESULTADO FINAL DA COMPARAÇÃO:`, {
-    name: { atual: currentName, anterior: previousName, mudou: nameChanged },
-    note: { atual: currentNote, anterior: previousNote, mudou: noteChanged },
-    number: { atual: currentNumber, anterior: previousNumber, mudou: numberChanged },
-    customFields: { mudou: customFieldsChanged }
+  if (previousCustomFields && Array.isArray(previousCustomFields)) {
+    previousCustomFields.forEach(field => {
+      const fieldName = CUSTOM_FIELD_NAMES[field.customFieldId] || field.customFieldId;
+      previousMap.set(fieldName, field.value || '');
+    });
+  }
+  
+  console.log(`📋 DADOS ATUAIS DA API:`, {
+    customFields: currentCustomFields?.map(f => ({
+      id: f.customFieldId,
+      value: f.value
+    })) || []
   });
   
-  const hasChanges = nameChanged || noteChanged || numberChanged || customFieldsChanged;
-  console.log(`🎯 DECISÃO FINAL: ${hasChanges ? 'ENVIAR' : 'NÃO ENVIAR'} (${hasChanges})`);
+  console.log(`📋 DADOS ANTERIORES DO CACHE:`, {
+    customFields: previousCustomFields?.map(f => ({
+      id: f.customFieldId,
+      value: f.value
+    })) || []
+  });
   
-  return hasChanges;
-}
-
-async function sendToCrmDirect(contactId, payload, crmToken) {
-  try {
-    console.log(`📤 Enviando ${contactId} para CRM com token gerado`);
+  console.log(`📋 MAPA CAMPOS ATUAIS:`, Array.from(currentMap.entries()));
+  console.log(`📋 MAPA CAMPOS ANTERIORES:`, Array.from(previousMap.entries()));
+  
+  // Verifica se algum campo mudou
+  const allFields = new Set([...currentMap.keys(), ...previousMap.keys()]);
+  
+  for (const fieldName of allFields) {
+    const currentValue = currentMap.get(fieldName) || '';
+    const previousValue = previousMap.get(fieldName) || '';
     
-    console.log('📦 PAYLOAD CRM:', JSON.stringify(payload, null, 2));
+    console.log(`🔍 COMPARANDO CAMPO "${fieldName}": atual="${currentValue}" vs anterior="${previousValue}"`);
     
-    const response = await axios.post(CONFIG.crmApiUrl, payload, {
-      timeout: CONFIG.requestTimeout,
-      headers: {
-        'Authorization': `Bearer ${crmToken}`,
-        'Content-Type': 'application/json',
-        'User-Agent': 'Digisac-CRM-Integration/1.0'
-      }
-    });
-
-    await logSendAttempt(contactId, payload, 'success', response.data, response.status);
-    
-    console.log(`✅ Enviado com sucesso para CRM:`, {
-      contactId,
-      status: response.status,
-      data: response.data
-    });
-    
-    return true;
-    
-  } catch (error) {
-    const errorMessage = error.response?.data || error.message;
-    const statusCode = error.response?.status || 'NETWORK_ERROR';
-    
-    console.error(`❌ Erro ao enviar ${contactId} para CRM:`, {
-      status: statusCode,
-      message: errorMessage,
-      url: CONFIG.crmApiUrl
-    });
-
-    await logSendAttempt(contactId, payload, 'error', errorMessage, statusCode);
-    return false;
+    if (currentValue !== previousValue) {
+      console.log(`🔄 CAMPO PERSONALIZADO ALTERADO: ${fieldName}`);
+      return true;
+    }
   }
+  
+  console.log(`ℹ️ NENHUM CAMPO PERSONALIZADO ALTERADO`);
+  return false;
 }
 
-async function sendToCrmWithRetry(contactId, payload, attempt = 1) {
+// Função para processar um contato individual
+async function processContact(contactData) {
   try {
-    console.log(`📤 Tentativa ${attempt} - Enviando ${contactId} para CRM`);
+    // Busca dados completos da API Digisac
+    const digisacApiData = await fetchContactFromDigisac(contactData.id);
+    
+    // Busca tickets do contato separadamente
+    const contactTickets = await fetchContactTickets(contactData.id);
+    
+    // Transforma dados para formato do CRM
+    const crmPayload = await transformToCrmFormat(contactData, digisacApiData, contactTickets);
     
     // Gera token do CRM
-    const crmToken = await getCrmToken();
+    const token = await getCrmToken();
     
-    console.log('📦 PAYLOAD CRM:', JSON.stringify(payload, null, 2));
+    // Envia para o CRM
+    console.log(`🚀 Enviando dados para CRM - Contato: ${contactData.id}`);
     
-    const response = await axios.post(CONFIG.crmApiUrl, payload, {
-      timeout: CONFIG.requestTimeout,
+    const response = await axios.post(CONFIG.crmApiUrl, crmPayload, {
       headers: {
-        'Authorization': `Bearer ${crmToken}`,
-        'Content-Type': 'application/json',
-        'User-Agent': 'Digisac-CRM-Integration/1.0'
-      }
-    });
-
-    await logSendAttempt(contactId, payload, 'success', response.data, response.status);
-    
-    console.log(`✅ Enviado com sucesso para CRM:`, {
-      contactId,
-      status: response.status
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: CONFIG.requestTimeout
     });
     
-    return true;
+    console.log(`✅ Dados enviados com sucesso para CRM - Contato: ${contactData.id}`);
+    console.log(`📊 Response status: ${response.status}`);
     
-  } catch (error) {
-    const errorMessage = error.response?.data || error.message;
-    const statusCode = error.response?.status || 'NETWORK_ERROR';
-    
-    console.error(`❌ Erro na tentativa ${attempt} para ${contactId}:`, {
-      status: statusCode,
-      message: errorMessage
-    });
-
-    await logSendAttempt(contactId, payload, 'error', errorMessage, statusCode);
-
-    if (attempt < CONFIG.maxRetries) {
-      console.log(`🔄 Aguardando ${CONFIG.retryDelay}ms antes da próxima tentativa...`);
-      await new Promise(resolve => setTimeout(resolve, CONFIG.retryDelay));
-      return sendToCrmWithRetry(contactId, payload, attempt + 1);
-    } else {
-      console.error(`💥 Falha definitiva após ${CONFIG.maxRetries} tentativas para ${contactId}`);
-      return false;
-    }
-  }
-}
-
-async function logSendAttempt(contactId, payload, status, response, statusCode) {
-  try {
+    // Salva no banco que foi enviado
     await new Promise((resolve, reject) => {
       db.run(
-        'INSERT INTO send_logs (contact_id, payload, status, response, timestamp) VALUES (?, ?, ?, ?, ?)',
-        [contactId, JSON.stringify(payload), `${status}_${statusCode}`, JSON.stringify(response), new Date().toISOString()],
+        'INSERT OR REPLACE INTO sent_data (id, name, number, note, timestamp) VALUES (?, ?, ?, ?, ?)',
+        [contactData.id, contactData.name, contactData.number, contactData.note, contactData.timestamp],
+        function(err) {
+          if (err) reject(err);
+          else resolve(this.changes);
+        }
+      );
+    });
+    
+    // Log de sucesso
+    await new Promise((resolve, reject) => {
+      db.run(
+        'INSERT INTO send_logs (contact_id, payload, status, response) VALUES (?, ?, ?, ?)',
+        [contactData.id, JSON.stringify(crmPayload), 'success', JSON.stringify(response.data)],
         function(err) {
           if (err) reject(err);
           else resolve(this.lastID);
         }
       );
     });
+    
   } catch (error) {
-    console.error('❌ Erro ao salvar log de envio:', error.message);
+    console.error(`❌ Erro ao enviar para CRM - Contato: ${contactData.id}:`, error.message);
+    
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    
+    // Log de erro
+    await new Promise((resolve, reject) => {
+      db.run(
+        'INSERT INTO send_logs (contact_id, payload, status, response) VALUES (?, ?, ?, ?)',
+        [contactData.id, JSON.stringify({}), 'error', error.message],
+        function(err) {
+          if (err) reject(err);
+          else resolve(this.lastID);
+        }
+      );
+    });
+    
+    throw error;
   }
 }
 
-// Endpoints de debug
-app.get('/', (req, res) => {
-  res.json({
-    status: 'Digisac-CRM Integration Online',
-    message: 'Sistema funcionando corretamente',
-    endpoints: {
-      webhook: '/webhook',
-      status: '/status',
-      buffer: '/buffer-info',
-      logs: '/logs',
-      'test-crm-token': '/test-crm-token'
-    }
-  });
-});
-
+// Endpoint para verificar status
 app.get('/status', (req, res) => {
   res.json({
     status: 'running',
-    buffer_size: dataBuffer.size,
-    buffer_timer_active: bufferTimer !== null,
-    crm_token_cached: crmTokenCache.token !== null,
-    crm_token_expires: crmTokenCache.expiresAt,
+    timestamp: new Date().toISOString(),
+    bufferSize: dataBuffer.size,
     config: {
-      buffer_time: CONFIG.bufferTime,
-      digisac_api: CONFIG.digisacApiUrl,
-      crm_api: CONFIG.crmApiUrl,
-      max_retries: CONFIG.maxRetries
+      port: CONFIG.port,
+      bufferTime: CONFIG.bufferTime,
+      digisacApiUrl: CONFIG.digisacApiUrl,
+      crmApiUrl: CONFIG.crmApiUrl
     }
   });
 });
 
-app.get('/test-crm-token', async (req, res) => {
-  try {
-    const token = await getCrmToken();
-    res.json({ 
-      status: 'success', 
-      message: 'Token CRM gerado com sucesso',
-      token_preview: token.substring(0, 20) + '...',
-      expires_at: crmTokenCache.expiresAt
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'error', 
-      message: error.message 
-    });
-  }
-});
-
+// Endpoint para verificar logs
 app.get('/logs', async (req, res) => {
   try {
     const logs = await new Promise((resolve, reject) => {
@@ -1026,61 +876,43 @@ app.get('/logs', async (req, res) => {
       );
     });
     
-    res.json({ logs });
+    res.json(logs);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/force-process', async (req, res) => {
-  try {
-    if (bufferTimer) {
-      clearTimeout(bufferTimer);
-      bufferTimer = null;
-    }
-    await processBuffer();
-    res.json({ status: 'success', message: 'Buffer processado manualmente' });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
-  }
+// Inicialização do servidor
+app.listen(CONFIG.port, '0.0.0.0', () => {
+  console.log('🚀 SERVIDOR DIGISAC-CRM INTEGRATION rodando na porta', CONFIG.port);
+  console.log('⏰ Buffer de acumulação:', CONFIG.bufferTime/1000, 'segundos');
+  console.log('🔗 Digisac API:', CONFIG.digisacApiUrl);
+  console.log('🎯 CRM API:', CONFIG.crmApiUrl);
+  console.log('✅ SISTEMA PRONTO PARA PRODUÇÃO!');
 });
 
-app.get('/buffer-info', (req, res) => {
-  const bufferData = Array.from(dataBuffer.entries()).map(([id, data]) => ({
-    id,
-    name: data.name,
-    note: data.note,
-    number: data.number,
-    timestamp: data.timestamp
-  }));
-  
-  res.json({
-    buffer_size: dataBuffer.size,
-    timer_active: bufferTimer !== null,
-    data: bufferData
-  });
-});
-
+// Graceful shutdown
 process.on('SIGINT', () => {
   console.log('🛑 Encerrando servidor...');
-  if (bufferTimer) {
-    clearTimeout(bufferTimer);
-  }
   db.close((err) => {
-    if (err) console.error('Erro ao fechar banco:', err.message);
-    else console.log('✅ Banco fechado com sucesso');
+    if (err) {
+      console.error('❌ Erro ao fechar banco:', err.message);
+    } else {
+      console.log('✅ Banco de dados fechado');
+    }
     process.exit(0);
   });
 });
 
-app.listen(CONFIG.port, () => {
-  console.log(`🚀 SERVIDOR DIGISAC-CRM INTEGRATION rodando na porta ${CONFIG.port}`);
-  console.log(`⏰ Buffer de acumulação: ${CONFIG.bufferTime/1000} segundos`);
-  console.log(`🔗 Digisac API: ${CONFIG.digisacApiUrl}`);
-  console.log(`🎯 CRM API: ${CONFIG.crmApiUrl}`);
-  console.log(`🔑 Token Digisac: ${CONFIG.digisacToken.substring(0, 10)}...`);
-  console.log(`🎯 MONITORANDO MUDANÇAS EM: name, note, number`);
-  console.log(`📋 FLUXO: Digisac → Buffer → API Digisac → Transformação → CRM`);
-  console.log(`✅ SISTEMA PRONTO PARA PRODUÇÃO!`);
+process.on('SIGTERM', () => {
+  console.log('🛑 Encerrando servidor...');
+  db.close((err) => {
+    if (err) {
+      console.error('❌ Erro ao fechar banco:', err.message);
+    } else {
+      console.log('✅ Banco de dados fechado');
+    }
+    process.exit(0);
+  });
 });
 
