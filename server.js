@@ -674,11 +674,13 @@ function hasFieldsChanged(currentData, lastSentData, currentApiData, previousApi
     return true;
   }
   
-  // Verifica mudanças nos campos principais
-  const fieldsChanged = 
-    currentData.name !== lastSentData.name ||
-    currentData.number !== lastSentData.number ||
-    currentData.note !== lastSentData.note;
+ // Verifica mudanças nos campos principais (incluindo internalName)
+const fieldsChanged = 
+  currentData.name !== lastSentData.name ||
+  currentData.internalName !== lastSentData.internalName ||  // ← ADICIONE ESTA LINHA
+  currentData.number !== lastSentData.number ||
+  currentData.note !== lastSentData.note;
+
   
   if (fieldsChanged) {
     console.log(`🔄 CAMPOS PRINCIPAIS ALTERADOS - Contato ${currentData.id}:`, {
