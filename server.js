@@ -490,6 +490,19 @@ function formatPhoneNumber(number) {
   };
 }
 
+// Função para escolher o nome preferido (internalName tem prioridade se não estiver vazio)
+function getPreferredName(contactData, digisacApiData) {
+  // Verifica se internalName existe na API e não está vazio
+  if (digisacApiData.internalName && digisacApiData.internalName.trim() !== '') {
+    console.log(`📝 USANDO INTERNAL NAME: "${digisacApiData.internalName}" (em vez de "${contactData.name}")`);
+    return digisacApiData.internalName.trim();
+  }
+  
+  // Fallback para o name original
+  console.log(`📝 USANDO NAME ORIGINAL: "${contactData.name}"`);
+  return contactData.name;
+}
+
 // Função para transformar dados para formato do CRM
 async function transformToCrmFormat(contactData, digisacApiData, contactTickets) {
   try {
@@ -527,7 +540,7 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
     
     const crmPayload = {
       // ID removido - CRM vai gerar automaticamente
-      name: contactData.name,
+      name: getPreferredName(contactData, digisacApiData),
       classification: "High", // CORRIGIDO: "High" com H maiúsculo
       interestedIn: "buy",
       source: source,
