@@ -298,14 +298,19 @@ async function fetchContactTickets(contactId) {
 // Função para extrair email do campo personalizado
 function extractEmailFromCustomFields(customFieldValues) {
   if (!customFieldValues || !Array.isArray(customFieldValues)) {
-    return 'sememail@email.com';
+    return ''; // ← CORRIGIDO: retorna vazio
   }
   
   const emailField = customFieldValues.find(field => 
     field.customFieldId === EMAIL_CUSTOM_FIELD_ID
   );
   
-  return emailField?.value || 'sememail@email.com';
+  // Verifica se o campo existe E se tem valor não vazio
+  if (emailField && emailField.value && emailField.value.trim() !== '') {
+    return emailField.value.trim();
+  }
+  
+  return ''; // ← CORRIGIDO: retorna vazio se não houver email
 }
 
 // Função para extrair source das tags
