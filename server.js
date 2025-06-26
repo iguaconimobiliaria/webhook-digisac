@@ -28,14 +28,32 @@ const USER_ID_MAPPING = {
   '48b2180f-55d2-4b4d-a9b7-9b583c7ac599': 77, // Suelin
   'ee5fa9f0-e203-4138-b0e1-48c6d23d3d3c': 49, // Lucas
   '9802485b-9f3e-45a9-91fa-891e37918e3d': 12, // Lucia
-  'e97e9a59-72fb-4b10-a1e9-13eee1fbb1ea': 27  // Kleo
+  'e97e9a59-72fb-4b10-a1e9-13eee1fbb1ea': 27,  // Kleo
+  'b02852d3-b3df-4c61-ab5b-9feb4840c99e': 105, // Jaque
+  '3a512b07-310b-42b9-bfb0-dc3905168c24': 118, // Flávia
+  '16399312-d44d-4684-8250-2872be84f06c': 74, // Ana
+  '106cf693-94f2-41e8-99fc-cac5bdff8ddd': 139, // Heloisa
+  'd204e1a8-a31d-4c57-b340-6ddce2f4632e': 127, // Danilo
+  '2eb20be5-6ace-4f18-91bb-48646e9a4bb4': 112, // Igor
+  '3be51a36-a8d9-40b3-9f00-cbc6858a7e6b': 30, // Alexandre
+  'f2826093-1382-420d-9d81-ba85f8018d65': 106, // Danielli
+  'ce75886f-a5ab-4ff6-9719-37ec46edbcb6': 56, // Edson
+  '931566e9-e7b9-4806-a24b-3dfbdd2f0892': 142, // Paulo
+  'f9aaccc5-ad8c-4097-821c-4ca9d96e45ef': 55  // Viviane
 };
 
 const TAG_SOURCE_MAPPING = {
   '9bf06544-6e4b-4d96-903d-2c26e52ca0c1': 'Campanha Jd. Alice - IM. Terceiros',
   '11221ef6-8afc-4ab2-9414-d8fa7fac573a': 'Campanha Ilha Bella - IM. Terceiros',
   'c2fed5c7-92d8-43e4-b255-4d585178bd3e': 'Campanha Vila Maria - IM. Terceiros',
-  'e71536ca-9f9c-4c5d-aa79-dfbee22ff332': 'Digisac - Imóveis de Terceiro'
+  'e71536ca-9f9c-4c5d-aa79-dfbee22ff332': 'Digisac - Imóveis de Terceiro',
+  '2ebcc701-02a6-4516-8b50-711333c12db7': 'Campanha Araucaria',
+  'c0dbb25e-bb8f-4c00-bc53-4f6077834954': 'Campanha Casa Claudir',
+  '14295746-a737-4838-89ce-68a907b00eca': 'Campanha Itamaraty',
+  '159b47e5-c0f6-42f8-a180-75db3066b40b': 'Campanha London',
+  'cfe5372c-3d16-45cd-b57e-81239e726f21': 'Campanha Renoir',
+  '75c153c4-e09c-4749-b610-bfcc30726043': 'Campanha Rigiero',
+  '7a8469cd-4e63-4afc-88c9-7ee14eef6514': 'Campanha Águas Claras'
 };
 
 const EMAIL_CUSTOM_FIELD_ID = '1e9f04d2-2c6f-4020-9965-49a0b47d16ca';
