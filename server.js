@@ -659,19 +659,22 @@ if (observationValue && observationValue.trim() !== '') {
 }
 
     
-    console.log(`🔄 Dados transformados para CRM:`, {
-  contactId: contactId,
-  name: crmPayload.name,
-  classification: crmPayload.classification,
-  source: crmPayload.source,
-  cellNumber: crmPayload.cellNumber,
-  phoneNumber: crmPayload.phoneNumber,
-  internationalPhoneNumber: crmPayload.internationalPhoneNumber,
-  email: crmPayload.email,
-  userId: crmPayload.user.id,
-  hasObservation: !!crmPayload.observation,  // ← CORRIGIDO
-  observationLength: crmPayload.observation ? crmPayload.observation.length : 0  // ← CORRIGIDO
-});
+ const crmPayload = {
+  name: ...,
+  classification: 'High', 
+  source: ...,
+  email: ...,
+  user: { id: userId }
+};
+
+// 🔧 ADICIONAR TELEFONE CONDICIONALMENTE
+if (phoneData.internationalPhoneNumber && phoneData.internationalPhoneNumber !== '') {
+  crmPayload.internationalPhoneNumber = phoneData.internationalPhoneNumber;
+} else {
+  crmPayload.cellNumber = phoneData.cellNumber || '';
+  crmPayload.phoneNumber = phoneData.phoneNumber || '';
+}
+
 
     
     return crmPayload;
