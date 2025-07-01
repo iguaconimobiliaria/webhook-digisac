@@ -390,7 +390,9 @@ function extractUserIdFromTickets(tickets) {
   return mappedUserId || 1; // Admin como fallback
 }
 
-// Função para formatar telefone (apenas números limpos - máximo 11 caracteres)
+// 🔧 CORREÇÃO PARA NÚMEROS PARAGUAIOS
+// Substitua apenas esta função no seu código existente
+
 function formatPhoneNumber(number) {
   if (!number) return { cellNumber: '', phoneNumber: '', internationalPhoneNumber: '' };
   
@@ -434,17 +436,57 @@ function formatPhoneNumber(number) {
     '98', '99' // MA
   ];
   
+  // 🔧 CORREÇÃO: Detectar códigos internacionais ANTES de verificar brasileiros
+  const internationalCodes = [
+    '595', // Paraguai
+    '598', // Uruguai
+    '593', // Equador
+    '591', // Bolívia
+    '54',  // Argentina
+    '56',  // Chile
+    '57',  // Colômbia
+    '58',  // Venezuela
+    '52',  // México
+    '1'    // EUA/Canadá
+  ];
+  
+  // Verifica se é número internacional
+  for (const code of internationalCodes) {
+    if (cleanNumber.startsWith(code)) {
+      const nationalPart = cleanNumber.substring(code.length);
+      // Verifica se tem tamanho mínimo após o código do país
+      if (nationalPart.length >= 7) {
+        const limitedNumber = cleanNumber.substring(0, 15);
+        console.log(`🌍 NÚMERO INTERNACIONAL:`, {
+          codigo: code,
+          numeroCompleto: cleanNumber,
+          numeroLimitado: limitedNumber,
+          tamanho: limitedNumber.length
+        });
+        
+        return {
+          cellNumber: '',  // 🔧 SEMPRE VAZIO para internacionais
+          phoneNumber: '', // 🔧 SEMPRE VAZIO para internacionais
+          internationalPhoneNumber: `+${limitedNumber}`
+        };
+      }
+    }
+  }
+  
   let brazilianNumber = '';
   let isBrazilian = false;
   
   // Verifica se é número brasileiro (código 55)
   if (cleanNumber.startsWith('55') && cleanNumber.length >= 12) {
     brazilianNumber = cleanNumber.substring(2); // Remove o 55
-    isBrazilian = true;
-    console.log(`📱 NÚMERO BRASILEIRO (com código 55):`, {
-      semCodigo: brazilianNumber,
-      tamanho: brazilianNumber.length
-    });
+    const possibleDDD = brazilianNumber.substring(0, 2);
+    if (brazilianDDDs.includes(possibleDDD)) {
+      isBrazilian = true;
+      console.log(`📱 NÚMERO BRASILEIRO (com código 55):`, {
+        semCodigo: brazilianNumber,
+        tamanho: brazilianNumber.length
+      });
+    }
   }
   // Verifica se é número brasileiro (sem código 55, mas com DDD brasileiro)
   else if (cleanNumber.length >= 10 && cleanNumber.length <= 11) {
@@ -498,16 +540,29 @@ function formatPhoneNumber(number) {
     };
   }
   
-  // Se não é brasileiro, coloca no campo internacional (limitado)
-  const limitedNumber = cleanNumber.substring(0, 15);
-  console.log(`🌍 NÚMERO INTERNACIONAL:`, {
-    numero: limitedNumber,
-    tamanho: limitedNumber.length
+  // 🔧 CORREÇÃO: Se chegou aqui e tem mais de 11 dígitos, trata como internacional
+  if (cleanNumber.length > 11) {
+    const limitedNumber = cleanNumber.substring(0, 15);
+    console.log(`🌍 NÚMERO INTERNACIONAL (código não reconhecido):`, {
+      numero: limitedNumber,
+      tamanho: limitedNumber.length
+    });
+    return {
+      cellNumber: '',  // 🔧 SEMPRE VAZIO para internacionais
+      phoneNumber: '', // 🔧 SEMPRE VAZIO para internacionais
+      internationalPhoneNumber: `+${limitedNumber}`
+    };
+  }
+  
+  // Se não é brasileiro e tem 11 ou menos dígitos, retorna vazio
+  console.log(`⚠️ NÚMERO NÃO RECONHECIDO:`, {
+    numero: cleanNumber,
+    tamanho: cleanNumber.length
   });
   return {
     cellNumber: '',
     phoneNumber: '',
-    internationalPhoneNumber: `+${limitedNumber}`
+    internationalPhoneNumber: ''
   };
 }
 
