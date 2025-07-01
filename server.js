@@ -390,13 +390,11 @@ function extractUserIdFromTickets(tickets) {
   return mappedUserId || 1; // Admin como fallback
 }
 
-// 🔧 CORREÇÃO PARA NÚMEROS PARAGUAIOS
-// Substitua apenas esta função no seu código existente
+// 🔧 APENAS A FUNÇÃO formatPhoneNumber CORRIGIDA
 
 function formatPhoneNumber(number) {
   if (!number) return { cellNumber: '', phoneNumber: '', internationalPhoneNumber: '' };
   
-  // Remove TODOS os caracteres não numéricos (incluindo espaços, parênteses, hífens, etc.)
   const cleanNumber = number.replace(/[^\d]/g, '').trim();
   
   console.log(`🔍 FORMATAÇÃO TELEFONE:`, {
@@ -436,40 +434,47 @@ function formatPhoneNumber(number) {
     '98', '99' // MA
   ];
   
-  // 🔧 CORREÇÃO: Detectar códigos internacionais ANTES de verificar brasileiros
-  const internationalCodes = [
-    '595', // Paraguai
-    '598', // Uruguai
-    '593', // Equador
-    '591', // Bolívia
-    '54',  // Argentina
-    '56',  // Chile
-    '57',  // Colômbia
-    '58',  // Venezuela
-    '52',  // México
-    '1'    // EUA/Canadá
-  ];
+  // 🔧 DETECÇÃO PARAGUAI PRIMEIRO
+  if (cleanNumber.startsWith('595') && cleanNumber.length >= 11) {
+    const limitedNumber = cleanNumber.substring(0, 15);
+    
+    // Formatação específica para Paraguai conforme CRM
+    let formattedInternational;
+    if (limitedNumber.length === 12) {
+      // 595973709050 -> +595 (973)709-050
+      formattedInternational = `+595 (${limitedNumber.slice(3, 6)})${limitedNumber.slice(6, 9)}-${limitedNumber.slice(9)}`;
+    } else {
+      formattedInternational = `+${limitedNumber}`;
+    }
+    
+    console.log(`🇵🇾 PARAGUAI:`, {
+      numeroFormatado: formattedInternational,
+      cellNumber: 'VAZIO',
+      phoneNumber: 'VAZIO'
+    });
+    
+    return {
+      cellNumber: '',
+      phoneNumber: '',
+      internationalPhoneNumber: formattedInternational
+    };
+  }
   
-  // Verifica se é número internacional
-  for (const code of internationalCodes) {
-    if (cleanNumber.startsWith(code)) {
-      const nationalPart = cleanNumber.substring(code.length);
-      // Verifica se tem tamanho mínimo após o código do país
-      if (nationalPart.length >= 7) {
-        const limitedNumber = cleanNumber.substring(0, 15);
-        console.log(`🌍 NÚMERO INTERNACIONAL:`, {
-          codigo: code,
-          numeroCompleto: cleanNumber,
-          numeroLimitado: limitedNumber,
-          tamanho: limitedNumber.length
-        });
-        
-        return {
-          cellNumber: '',  // 🔧 SEMPRE VAZIO para internacionais
-          phoneNumber: '', // 🔧 SEMPRE VAZIO para internacionais
-          internationalPhoneNumber: `+${limitedNumber}`
-        };
-      }
+  // Outros códigos internacionais
+  const otherInternationalCodes = ['54', '56', '57', '58', '598', '593', '591', '1'];
+  for (const code of otherInternationalCodes) {
+    if (cleanNumber.startsWith(code) && cleanNumber.length > 11) {
+      const limitedNumber = cleanNumber.substring(0, 15);
+      
+      console.log(`🌍 INTERNACIONAL (${code}):`, {
+        numeroFormatado: `+${limitedNumber}`
+      });
+      
+      return {
+        cellNumber: '',
+        phoneNumber: '',
+        internationalPhoneNumber: `+${limitedNumber}`
+      };
     }
   }
   
@@ -540,21 +545,7 @@ function formatPhoneNumber(number) {
     };
   }
   
-  // 🔧 CORREÇÃO: Se chegou aqui e tem mais de 11 dígitos, trata como internacional
-  if (cleanNumber.length > 11) {
-    const limitedNumber = cleanNumber.substring(0, 15);
-    console.log(`🌍 NÚMERO INTERNACIONAL (código não reconhecido):`, {
-      numero: limitedNumber,
-      tamanho: limitedNumber.length
-    });
-    return {
-      cellNumber: '',  // 🔧 SEMPRE VAZIO para internacionais
-      phoneNumber: '', // 🔧 SEMPRE VAZIO para internacionais
-      internationalPhoneNumber: `+${limitedNumber}`
-    };
-  }
-  
-  // Se não é brasileiro e tem 11 ou menos dígitos, retorna vazio
+  // Se chegou aqui, retorna vazio
   console.log(`⚠️ NÚMERO NÃO RECONHECIDO:`, {
     numero: cleanNumber,
     tamanho: cleanNumber.length
