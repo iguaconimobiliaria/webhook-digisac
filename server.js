@@ -390,8 +390,7 @@ function extractUserIdFromTickets(tickets) {
   return mappedUserId || 1; // Admin como fallback
 }
 
-// 🔧 APENAS A FUNÇÃO formatPhoneNumber CORRIGIDA
-
+// 🔧 FUNÇÃO formatPhoneNumber CORRIGIDA PARA PARAGUAI
 function formatPhoneNumber(number) {
   if (!number) return { cellNumber: '', phoneNumber: '', internationalPhoneNumber: '' };
   
@@ -599,10 +598,10 @@ function getObservationValue(currentNote, lastSentNote) {
   return currentNote;
 }
 
-// Função para transformar dados para formato do CRM
+// 🔧 FUNÇÃO CORRIGIDA - transformToCrmFormat
 async function transformToCrmFormat(contactData, digisacApiData, contactTickets) {
   try {
-    const { cellNumber, phoneNumber, internationalPhoneNumber } = formatPhoneNumber(contactData.number);
+    const phoneData = formatPhoneNumber(contactData.number);
     const email = extractEmailFromCustomFields(digisacApiData.customFieldValues);
     const source = extractSourceFromTags(digisacApiData.tags);
     const userId = extractUserIdFromTickets(contactTickets);
@@ -632,50 +631,41 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
     
     const observationValue = getObservationValue(contactData.note, lastSentData?.note);
     
+    // 🔧 CORREÇÃO PRINCIPAL: Criar payload base sem campos de telefone
     const crmPayload = {
-  name: getPreferredName(contactData, digisacApiData),
-  classification: "High",
-  interestedIn: "buy",
-  source: source,
-  cellNumber: cellNumber,
-  phoneNumber: phoneNumber,
-  internationalPhoneNumber: internationalPhoneNumber,
-  email: email,
-  user: userData,
-  contacts: [
-    {
-      propertyId: 123,
-      observation: "Lead processado automaticamente via Digisac",
-      contactType: 11,
-      date: new Date().toISOString().substring(0, 10) + ':' + new Date().toISOString().substring(11, 19)
+      name: getPreferredName(contactData, digisacApiData),
+      classification: "High",
+      interestedIn: "buy",
+      source: source,
+      email: email,
+      user: userData,
+      contacts: [
+        {
+          propertyId: 123,
+          observation: "Lead processado automaticamente via Digisac",
+          contactType: 11,
+          date: new Date().toISOString().substring(0, 10) + ':' + new Date().toISOString().substring(11, 19)
+        }
+      ]
+    };
+
+    // 🔧 ADICIONAR CAMPOS DE TELEFONE CONDICIONALMENTE
+    if (phoneData.internationalPhoneNumber && phoneData.internationalPhoneNumber !== '') {
+      // Para números internacionais: APENAS internationalPhoneNumber
+      crmPayload.internationalPhoneNumber = phoneData.internationalPhoneNumber;
+      console.log(`🌍 PAYLOAD INTERNACIONAL: Adicionando apenas internationalPhoneNumber`);
+    } else if (phoneData.cellNumber || phoneData.phoneNumber) {
+      // Para números brasileiros: cellNumber e phoneNumber
+      crmPayload.cellNumber = phoneData.cellNumber || '';
+      crmPayload.phoneNumber = phoneData.phoneNumber || '';
+      console.log(`🇧🇷 PAYLOAD BRASILEIRO: Adicionando cellNumber e phoneNumber`);
     }
-  ]
-};
 
-// Adiciona observation apenas se não estiver vazio
-if (observationValue && observationValue.trim() !== '') {
-  crmPayload.observation = observationValue;
-  crmPayload.observationLead = observationValue.substring(0, 150);
-}
-
-    
- const crmPayload = {
-  name: ...,
-  classification: 'High', 
-  source: ...,
-  email: ...,
-  user: { id: userId }
-};
-
-// 🔧 ADICIONAR TELEFONE CONDICIONALMENTE
-if (phoneData.internationalPhoneNumber && phoneData.internationalPhoneNumber !== '') {
-  crmPayload.internationalPhoneNumber = phoneData.internationalPhoneNumber;
-} else {
-  crmPayload.cellNumber = phoneData.cellNumber || '';
-  crmPayload.phoneNumber = phoneData.phoneNumber || '';
-}
-
-
+    // Adiciona observation apenas se não estiver vazio
+    if (observationValue && observationValue.trim() !== '') {
+      crmPayload.observation = observationValue;
+      crmPayload.observationLead = observationValue.substring(0, 150);
+    }
     
     return crmPayload;
     
@@ -694,6 +684,17 @@ async function sendToCrm(contactData, crmPayload) {
       const token = await getCrmToken();
       
       console.log(`🚀 Enviando dados para CRM - Contato: ${contactData.id}`);
+      
+      // 🔧 LOG DO PAYLOAD FINAL ANTES DO ENVIO
+      console.log(`🔍 PAYLOAD FINAL PARA CRM:`, JSON.stringify(crmPayload, null, 2));
+      console.log(`🔍 VERIFICAÇÃO CAMPOS:`, {
+        temCellNumber: 'cellNumber' in crmPayload,
+        temPhoneNumber: 'phoneNumber' in crmPayload,
+        temInternationalPhoneNumber: 'internationalPhoneNumber' in crmPayload,
+        cellNumberValue: crmPayload.cellNumber,
+        phoneNumberValue: crmPayload.phoneNumber,
+        internationalPhoneNumberValue: crmPayload.internationalPhoneNumber
+      });
       
       const response = await axios.post(CONFIG.crmApiUrl, crmPayload, {
         headers: {
@@ -885,8 +886,8 @@ async function hasCustomFieldsChanged(contactId, currentApiData) {
     
     // Verifica campos que foram removidos
     for (const [fieldName, previousValue] of previousFieldsMap) {
-      if (!currentFieldsMap.has(fieldName)) {
-        console.log(`🗑️ CAMPO PERSONALIZADO REMOVIDO: ${fieldName}`);
+      if (!currentFieldsMap.has(fieldName) && previousValue !== '') {
+        console.log(`🔄 CAMPO PERSONALIZADO REMOVIDO: ${fieldName}`);
         hasChanges = true;
       }
     }
@@ -903,154 +904,161 @@ async function hasCustomFieldsChanged(contactId, currentApiData) {
   }
 }
 
-// Função para processar um contato individual
-async function processContact(contactData) {
-  try {
-    console.log(`🚀 INICIANDO BUSCA DE DADOS DA API PARA ${contactData.id}`);
-    
-    // Busca dados completos da API Digisac
-    const digisacApiData = await fetchContactFromDigisac(contactData.id);
-    
-    // Verifica mudanças nos campos principais
-    const fieldsChanged = await hasFieldsChanged(contactData);
-    
-    // Verifica mudanças nos campos personalizados
-    const customFieldsChanged = await hasCustomFieldsChanged(contactData.id, digisacApiData);
-    
-    if (!fieldsChanged && !customFieldsChanged) {
-      console.log(`ℹ️ NENHUMA MUDANÇA DETECTADA - Contato ${contactData.id}`);
-      return { processed: false, reason: 'no_changes' };
-    }
-    
-    console.log(`✅ MUDANÇAS DETECTADAS - Adicionando à lista de envio: ${contactData.id}`);
-    
-    // Busca dados completos novamente (para garantir dados atualizados)
-    const freshDigisacApiData = await fetchContactFromDigisac(contactData.id);
-    
-    // Busca tickets do contato
-    const contactTickets = await fetchContactTickets(contactData.id);
-    
-    // Transforma dados para formato do CRM
-    const crmPayload = await transformToCrmFormat(contactData, freshDigisacApiData, contactTickets);
-    
-    // Envia para o CRM
-    const result = await sendToCrm(contactData, crmPayload);
-    
-    return { processed: true, result: result };
-    
-  } catch (error) {
-    console.error(`❌ Erro ao processar contato ${contactData.id}:`, error.message);
-    throw error;
-  }
-}
-
 // Função principal para processar o buffer
 async function processBuffer() {
+  console.log(`🔄 PROCESSANDO BUFFER APÓS ${CONFIG.bufferTime/1000} SEGUNDOS...`);
+  console.log(`📊 Total de registros no buffer: ${dataBuffer.size}`);
+  
+  if (dataBuffer.size === 0) {
+    console.log('📭 Buffer vazio, nada para processar');
+    bufferTimer = null;
+    return;
+  }
+  
+  const contactsToSend = [];
+  const contactsWithoutChanges = [];
+  
   try {
-    console.log('🔄 PROCESSANDO BUFFER APÓS 20 SEGUNDOS...');
-    console.log(`📊 Total de registros no buffer: ${dataBuffer.size}`);
-    
-    if (dataBuffer.size === 0) {
-      console.log('📭 Buffer vazio - Nada para processar');
-      bufferTimer = null;
-      return;
-    }
-    
-    const contactsToProcess = [];
-    const contactsWithoutChanges = [];
-    
-    // Analisa cada contato no buffer
+    // Processa cada contato no buffer
     for (const [contactId, contactData] of dataBuffer) {
-      console.log(`🔍 Analisando ID: ${contactId}`);
-      
       try {
-        const result = await processContact(contactData);
+        console.log(`🔍 Analisando ID: ${contactId}`);
         
-        if (result.processed) {
-          contactsToProcess.push(contactData);
+        // Busca dados completos da API Digisac
+        console.log(`🚀 INICIANDO BUSCA DE DADOS DA API PARA ${contactId}`);
+        const digisacApiData = await fetchContactFromDigisac(contactId);
+        
+        // Busca tickets do contato
+        const contactTickets = await fetchContactTickets(contactId);
+        
+        // Verifica se houve mudanças nos campos principais
+        const fieldsChanged = await hasFieldsChanged(contactData);
+        
+        // Verifica se houve mudanças nos campos personalizados
+        const customFieldsChanged = await hasCustomFieldsChanged(contactId, digisacApiData);
+        
+        if (fieldsChanged || customFieldsChanged) {
+          console.log(`✅ MUDANÇAS DETECTADAS - Adicionando à lista de envio: ${contactId}`);
+          
+          // Transforma dados para formato do CRM
+          const crmPayload = await transformToCrmFormat(contactData, digisacApiData, contactTickets);
+          
+          contactsToSend.push({
+            contactData: contactData,
+            crmPayload: crmPayload
+          });
         } else {
-          contactsWithoutChanges.push(contactData);
-          console.log(`ℹ️ SEM MUDANÇAS - Ignorando: ${contactId}`);
+          console.log(`ℹ️ SEM MUDANÇAS - Contato: ${contactId}`);
+          contactsWithoutChanges.push(contactId);
         }
         
       } catch (error) {
         console.error(`❌ Erro ao analisar contato ${contactId}:`, error.message);
-        // Continua processando outros contatos mesmo se um falhar
       }
     }
     
     console.log(`📊 SEM MUDANÇAS: ${contactsWithoutChanges.length} contatos`);
-    console.log(`📤 TOTAL PARA PROCESSAR E ENVIAR AO CRM: ${contactsToProcess.length}`);
+    console.log(`📤 TOTAL PARA PROCESSAR E ENVIAR AO CRM: ${contactsToSend.length}`);
     
-    // Limpa o buffer
-    console.log(`🧹 Limpando buffer (${dataBuffer.size} registros removidos)`);
-    dataBuffer.clear();
-    bufferTimer = null;
-    
-    console.log('✅ PROCESSAMENTO DO BUFFER CONCLUÍDO');
+    // Envia para o CRM apenas os contatos que tiveram mudanças
+    for (const { contactData, crmPayload } of contactsToSend) {
+      try {
+        // 🔧 LOG DETALHADO ANTES DO ENVIO
+        console.log(`🔄 Dados transformados para CRM:`, {
+          contactId: contactData.id,
+          name: crmPayload.name,
+          classification: crmPayload.classification,
+          source: crmPayload.source,
+          cellNumber: crmPayload.cellNumber,
+          phoneNumber: crmPayload.phoneNumber,
+          internationalPhoneNumber: crmPayload.internationalPhoneNumber,
+          email: crmPayload.email,
+          userId: crmPayload.user.id,
+          hasObservation: !!crmPayload.observation,
+          observationLength: crmPayload.observation ? crmPayload.observation.length : 0
+        });
+        
+        await sendToCrm(contactData, crmPayload);
+        console.log(`✅ Contato processado com sucesso: ${contactData.id}`);
+        
+      } catch (error) {
+        console.error(`❌ Erro ao processar contato ${contactData.id}:`, error.message);
+      }
+    }
     
   } catch (error) {
-    console.error('❌ Erro crítico no processamento do buffer:', error.message);
-    
-    // Limpa o buffer mesmo em caso de erro para evitar loop infinito
+    console.error('❌ Erro geral no processamento do buffer:', error.message);
+  } finally {
+    // Limpa o buffer e reseta o timer
+    const bufferSize = dataBuffer.size;
     dataBuffer.clear();
     bufferTimer = null;
+    
+    console.log(`🧹 Limpando buffer (${bufferSize} registros removidos)`);
+    console.log('✅ PROCESSAMENTO DO BUFFER CONCLUÍDO');
   }
 }
 
-// Endpoint para verificar status
+// Endpoint de status
 app.get('/status', (req, res) => {
   res.json({
     status: 'running',
+    timestamp: new Date().toISOString(),
     bufferSize: dataBuffer.size,
-    hasTimer: !!bufferTimer,
-    timestamp: new Date().toISOString()
+    hasActiveTimer: !!bufferTimer
   });
 });
 
-// Endpoint para forçar processamento do buffer (para testes)
-app.post('/force-process', async (req, res) => {
-  try {
-    if (bufferTimer) {
-      clearTimeout(bufferTimer);
-      bufferTimer = null;
-    }
-    
-    await processBuffer();
-    
-    res.json({
-      status: 'success',
-      message: 'Buffer processado com sucesso',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
+// Endpoint de health check
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    bufferSize: dataBuffer.size,
+    version: '1.0.0'
+  });
 });
 
 // Inicia o servidor
 app.listen(CONFIG.port, () => {
   console.log(`🚀 Servidor rodando na porta ${CONFIG.port}`);
-  console.log(`📡 Webhook endpoint: http://localhost:${CONFIG.port}/webhook`);
-  console.log(`📊 Status endpoint: http://localhost:${CONFIG.port}/status`);
-  console.log(`🔧 Force process endpoint: http://localhost:${CONFIG.port}/force-process`);
+  console.log(`📋 Configurações:`);
+  console.log(`   - Buffer time: ${CONFIG.bufferTime/1000}s`);
+  console.log(`   - Max retries: ${CONFIG.maxRetries}`);
+  console.log(`   - Request timeout: ${CONFIG.requestTimeout}ms`);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('🛑 Recebido SIGINT, fechando servidor...');
+  console.log('🛑 Recebido SIGINT, encerrando servidor...');
   
   if (bufferTimer) {
     clearTimeout(bufferTimer);
+    console.log('⏰ Timer do buffer cancelado');
   }
   
   db.close((err) => {
     if (err) {
-      console.error('❌ Erro ao fechar banco de dados:', err.message);
+      console.error('❌ Erro ao fechar banco:', err.message);
+    } else {
+      console.log('✅ Banco de dados fechado');
+    }
+    process.exit(0);
+  });
+});
+
+process.on('SIGTERM', () => {
+  console.log('🛑 Recebido SIGTERM, encerrando servidor...');
+  
+  if (bufferTimer) {
+    clearTimeout(bufferTimer);
+    console.log('⏰ Timer do buffer cancelado');
+  }
+  
+  db.close((err) => {
+    if (err) {
+      console.error('❌ Erro ao fechar banco:', err.message);
     } else {
       console.log('✅ Banco de dados fechado');
     }
