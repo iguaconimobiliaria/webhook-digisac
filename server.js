@@ -499,7 +499,7 @@ function formatPhoneNumber(number) {
   }
   
   // Se não é brasileiro, coloca no campo internacional (limitado)
-  const limitedNumber = cleanNumber.substring(0, 15);
+  const limitedNumber = cleanNumber.substring(0, 11);
   console.log(`🌍 NÚMERO INTERNACIONAL:`, {
     numero: limitedNumber,
     tamanho: limitedNumber.length
