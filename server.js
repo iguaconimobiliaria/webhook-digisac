@@ -507,7 +507,7 @@ function formatPhoneNumber(number) {
   return {
     cellNumber: '',
     phoneNumber: '',
-    internationalPhoneNumber: `{limitedNumber}`
+    internationalPhoneNumber: `+${limitedNumber}`
   };
 }
 
