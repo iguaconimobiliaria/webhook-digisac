@@ -646,7 +646,7 @@ function getObservationValue(currentNote, lastSentNote, phoneData) {
   return finalObservation;
 }
 
-// 🔧 FUNÇÃO CORRIGIDA - transformToCrmFormat para números internacionais
+// 🔧 FUNÇÃO CORRIGIDA - transformToCrmFormat com email condicional
 async function transformToCrmFormat(contactData, digisacApiData, contactTickets) {
   try {
     const phoneData = formatPhoneNumber(contactData.number);
@@ -680,7 +680,7 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
     // 🔧 NOVA LÓGICA para observation com números internacionais
     const observationValue = getObservationValue(contactData.note, lastSentData?.note, phoneData);
     
-    // 🔧 CRIAR PAYLOAD BASE
+    // 🔧 CRIAR PAYLOAD BASE SEM EMAIL
     const crmPayload = {
       name: getPreferredName(contactData, digisacApiData),
       classification: "High",
@@ -688,7 +688,6 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       source: source,
       cellNumber: phoneData.cellNumber,     // 🔧 SEMPRE INCLUI (vazio ou com número sem código país)
       phoneNumber: phoneData.phoneNumber,   // 🔧 SEMPRE INCLUI (vazio ou com número sem código país)
-      email: email,
       user: userData,
       contacts: [
         {
@@ -699,6 +698,14 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
         }
       ]
     };
+
+    // 🔧 ADICIONAR EMAIL APENAS SE NÃO ESTIVER VAZIO
+    if (email && email.trim() !== '') {
+      crmPayload.email = email;
+      console.log(`📧 EMAIL ADICIONADO: "${email}"`);
+    } else {
+      console.log(`📧 EMAIL VAZIO - Campo não será enviado para o CRM`);
+    }
 
     // Adiciona observation apenas se não estiver vazio
     if (observationValue && observationValue.trim() !== '') {
@@ -712,6 +719,8 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       cellNumber: crmPayload.cellNumber,
       phoneNumber: crmPayload.phoneNumber,
       cellNumberLength: crmPayload.cellNumber.length,
+      hasEmail: !!crmPayload.email,
+      emailValue: crmPayload.email || 'NÃO ENVIADO',
       hasObservation: !!crmPayload.observation
     });
     
@@ -740,6 +749,8 @@ async function sendToCrm(contactData, crmPayload) {
         cellNumberLength: crmPayload.cellNumber ? crmPayload.cellNumber.length : 0,
         phoneNumber: crmPayload.phoneNumber,
         phoneNumberLength: crmPayload.phoneNumber ? crmPayload.phoneNumber.length : 0,
+        hasEmail: 'email' in crmPayload,
+        emailValue: crmPayload.email || 'CAMPO NÃO EXISTE',
         hasObservation: !!crmPayload.observation
       });
       
@@ -1019,7 +1030,8 @@ async function processBuffer() {
           cellNumber: crmPayload.cellNumber,
           phoneNumber: crmPayload.phoneNumber,
           cellNumberLength: crmPayload.cellNumber ? crmPayload.cellNumber.length : 0,
-          email: crmPayload.email,
+          hasEmail: 'email' in crmPayload,
+          emailValue: crmPayload.email || 'CAMPO NÃO EXISTE',
           userId: crmPayload.user.id,
           hasObservation: !!crmPayload.observation,
           observationLength: crmPayload.observation ? crmPayload.observation.length : 0
