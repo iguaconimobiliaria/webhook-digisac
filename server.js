@@ -58,6 +58,20 @@ const TAG_SOURCE_MAPPING = {
 
 const EMAIL_CUSTOM_FIELD_ID = '1e9f04d2-2c6f-4020-9965-49a0b47d16ca';
 
+// 🌍 MAPEAMENTO DE PAÍSES PARA IDENTIFICAÇÃO
+const COUNTRY_CODES = {
+  '54': 'argentino',
+  '595': 'paraguaio', 
+  '598': 'uruguaio',
+  '56': 'chileno',
+  '57': 'colombiano',
+  '58': 'venezuelano',
+  '593': 'equatoriano',
+  '591': 'boliviano',
+  '1': 'americano/canadense',
+  '52': 'mexicano'
+};
+
 // Cache para token do CRM (válido por 60 minutos)
 let crmTokenCache = {
   token: null,
@@ -390,9 +404,17 @@ function extractUserIdFromTickets(tickets) {
   return mappedUserId || 1; // Admin como fallback
 }
 
-// 🔧 FUNÇÃO formatPhoneNumber CORRIGIDA PARA PARAGUAI
+// 🔧 FUNÇÃO CORRIGIDA - formatPhoneNumber para números internacionais
 function formatPhoneNumber(number) {
-  if (!number) return { cellNumber: '', phoneNumber: '', internationalPhoneNumber: '' };
+  if (!number) return { 
+    cellNumber: '', 
+    phoneNumber: '', 
+    internationalPhoneNumber: '',
+    isInternational: false,
+    countryCode: '',
+    countryName: '',
+    fullInternationalNumber: ''
+  };
   
   const cleanNumber = number.replace(/[^\d]/g, '').trim();
   
@@ -433,47 +455,38 @@ function formatPhoneNumber(number) {
     '98', '99' // MA
   ];
   
-  // 🔧 DETECÇÃO PARAGUAI PRIMEIRO
-  if (cleanNumber.startsWith('595') && cleanNumber.length >= 11) {
-    const limitedNumber = cleanNumber.substring(0, 15);
-    
-    // Formatação específica para Paraguai conforme CRM
-    let formattedInternational;
-    if (limitedNumber.length === 12) {
-      // 595973709050 -> +595 (973)709-050
-      formattedInternational = `+595 (${limitedNumber.slice(3, 6)})${limitedNumber.slice(6, 9)}-${limitedNumber.slice(9)}`;
-    } else {
-      formattedInternational = `+${limitedNumber}`;
-    }
-    
-    console.log(`🇵🇾 PARAGUAI:`, {
-      numeroFormatado: formattedInternational,
-      cellNumber: 'VAZIO',
-      phoneNumber: 'VAZIO'
-    });
-    
-    return {
-      cellNumber: '',
-      phoneNumber: '',
-      internationalPhoneNumber: formattedInternational
-    };
-  }
-  
-  // Outros códigos internacionais
-  const otherInternationalCodes = ['54', '56', '57', '58', '598', '593', '591', '1'];
-  for (const code of otherInternationalCodes) {
-    if (cleanNumber.startsWith(code) && cleanNumber.length > 11) {
-      const limitedNumber = cleanNumber.substring(0, 15);
+  // 🌍 VERIFICA SE É NÚMERO INTERNACIONAL
+  for (const [countryCode, countryName] of Object.entries(COUNTRY_CODES)) {
+    if (cleanNumber.startsWith(countryCode)) {
+      const nationalPart = cleanNumber.substring(countryCode.length);
       
-      console.log(`🌍 INTERNACIONAL (${code}):`, {
-        numeroFormatado: `+${limitedNumber}`
-      });
-      
-      return {
-        cellNumber: '',
-        phoneNumber: '',
-        internationalPhoneNumber: `+${limitedNumber}`
-      };
+      // Verifica tamanho mínimo após código do país
+      if (nationalPart.length >= 7) {
+        const limitedNumber = cleanNumber.substring(0, 15);
+        const numberWithoutCountryCode = limitedNumber.substring(countryCode.length);
+        
+        // 🔧 FORÇA LIMITE DE 11 CARACTERES para cellNumber
+        const cellNumberForCrm = numberWithoutCountryCode.substring(0, 11);
+        
+        console.log(`🌍 NÚMERO INTERNACIONAL DETECTADO:`, {
+          pais: countryName,
+          codigoPais: countryCode,
+          numeroCompleto: limitedNumber,
+          numeroSemCodigo: numberWithoutCountryCode,
+          cellNumberParaCRM: cellNumberForCrm,
+          tamanhoFinal: cellNumberForCrm.length
+        });
+        
+        return {
+          cellNumber: cellNumberForCrm,  // 🔧 SEM os 2 primeiros dígitos, máximo 11 chars
+          phoneNumber: cellNumberForCrm, // 🔧 Mesmo valor
+          internationalPhoneNumber: '',  // 🔧 Vazio para não duplicar
+          isInternational: true,
+          countryCode: countryCode,
+          countryName: countryName,
+          fullInternationalNumber: `+${limitedNumber}`
+        };
+      }
     }
   }
   
@@ -510,37 +523,49 @@ function formatPhoneNumber(number) {
     // Retorna apenas números limpos (sem formatação) - FORÇA LIMITE DE 11
     if (brazilianNumber.length >= 11) {
       const finalNumber = brazilianNumber.substring(0, 11); // FORÇA máximo 11
-      console.log(`✅ NÚMERO FINAL:`, {
+      console.log(`✅ NÚMERO BRASILEIRO FINAL:`, {
         numero: finalNumber,
         tamanho: finalNumber.length
       });
       return {
         cellNumber: finalNumber,
         phoneNumber: finalNumber,
-        internationalPhoneNumber: ''
+        internationalPhoneNumber: '',
+        isInternational: false,
+        countryCode: '',
+        countryName: '',
+        fullInternationalNumber: ''
       };
     } else if (brazilianNumber.length === 10) {
-      console.log(`✅ NÚMERO FINAL (10 dígitos):`, {
+      console.log(`✅ NÚMERO BRASILEIRO FINAL (10 dígitos):`, {
         numero: brazilianNumber,
         tamanho: brazilianNumber.length
       });
       return {
         cellNumber: brazilianNumber,
         phoneNumber: brazilianNumber,
-        internationalPhoneNumber: ''
+        internationalPhoneNumber: '',
+        isInternational: false,
+        countryCode: '',
+        countryName: '',
+        fullInternationalNumber: ''
       };
     }
     
     // Fallback - força limite
     const finalNumber = brazilianNumber.substring(0, 11);
-    console.log(`⚠️ FALLBACK - NÚMERO FINAL:`, {
+    console.log(`⚠️ FALLBACK BRASILEIRO:`, {
       numero: finalNumber,
       tamanho: finalNumber.length
     });
     return {
       cellNumber: finalNumber,
       phoneNumber: finalNumber,
-      internationalPhoneNumber: ''
+      internationalPhoneNumber: '',
+      isInternational: false,
+      countryCode: '',
+      countryName: '',
+      fullInternationalNumber: ''
     };
   }
   
@@ -552,7 +577,11 @@ function formatPhoneNumber(number) {
   return {
     cellNumber: '',
     phoneNumber: '',
-    internationalPhoneNumber: ''
+    internationalPhoneNumber: '',
+    isInternational: false,
+    countryCode: '',
+    countryName: '',
+    fullInternationalNumber: ''
   };
 }
 
@@ -575,30 +604,49 @@ function getPreferredName(contactData, digisacApiData) {
   return contactData.name;
 }
 
-// Função para verificar se o note mudou e retornar valor apropriado
-function getObservationValue(currentNote, lastSentNote) {
-  // Se não há note atual, retorna vazio
-  if (!currentNote || currentNote.trim() === '') {
-    console.log(`📝 NOTE VAZIO - Enviando observation vazia`);
-    return '';
-  }
+// 🔧 FUNÇÃO CORRIGIDA - getObservationValue para números internacionais
+function getObservationValue(currentNote, lastSentNote, phoneData) {
+  let finalObservation = '';
   
-  // Se o note é igual ao último enviado, retorna vazio para não duplicar
-  if (currentNote === lastSentNote) {
-    console.log(`📝 NOTE IGUAL AO ANTERIOR - Enviando observation vazia para evitar duplicação`);
-    console.log(`📝 Note atual: "${currentNote}"`);
+  // 🌍 Se é número internacional e é a primeira vez (não há note anterior)
+  if (phoneData.isInternational && !lastSentNote) {
+    const internationalNote = `Lead ${phoneData.countryName} Nº ${phoneData.fullInternationalNumber}`;
+    console.log(`🌍 PRIMEIRA VEZ - NÚMERO INTERNACIONAL: Adicionando nota "${internationalNote}"`);
+    
+    // Se há note atual, combina com a nota internacional
+    if (currentNote && currentNote.trim() !== '') {
+      finalObservation = `${internationalNote}. ${currentNote}`;
+    } else {
+      finalObservation = internationalNote;
+    }
+  }
+  // Se não é internacional ou já foi enviado antes
+  else {
+    // Se não há note atual, retorna vazio
+    if (!currentNote || currentNote.trim() === '') {
+      console.log(`📝 NOTE VAZIO - Enviando observation vazia`);
+      return '';
+    }
+    
+    // Se o note é igual ao último enviado, retorna vazio para não duplicar
+    if (currentNote === lastSentNote) {
+      console.log(`📝 NOTE IGUAL AO ANTERIOR - Enviando observation vazia para evitar duplicação`);
+      console.log(`📝 Note atual: "${currentNote}"`);
+      console.log(`📝 Note anterior: "${lastSentNote}"`);
+      return '';
+    }
+    
+    // Se o note mudou, envia o novo valor
+    console.log(`📝 NOTE ALTERADO - Enviando nova observation`);
     console.log(`📝 Note anterior: "${lastSentNote}"`);
-    return '';
+    console.log(`📝 Note atual: "${currentNote}"`);
+    finalObservation = currentNote;
   }
   
-  // Se o note mudou, envia o novo valor
-  console.log(`📝 NOTE ALTERADO - Enviando nova observation`);
-  console.log(`📝 Note anterior: "${lastSentNote}"`);
-  console.log(`📝 Note atual: "${currentNote}"`);
-  return currentNote;
+  return finalObservation;
 }
 
-// 🔧 FUNÇÃO CORRIGIDA - transformToCrmFormat
+// 🔧 FUNÇÃO CORRIGIDA - transformToCrmFormat para números internacionais
 async function transformToCrmFormat(contactData, digisacApiData, contactTickets) {
   try {
     const phoneData = formatPhoneNumber(contactData.number);
@@ -629,14 +677,17 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       name: "Elliot Alderson" // Fixo
     };
     
-    const observationValue = getObservationValue(contactData.note, lastSentData?.note);
+    // 🔧 NOVA LÓGICA para observation com números internacionais
+    const observationValue = getObservationValue(contactData.note, lastSentData?.note, phoneData);
     
-    // 🔧 CORREÇÃO PRINCIPAL: Criar payload base sem campos de telefone
+    // 🔧 CRIAR PAYLOAD BASE
     const crmPayload = {
       name: getPreferredName(contactData, digisacApiData),
       classification: "High",
       interestedIn: "buy",
       source: source,
+      cellNumber: phoneData.cellNumber,     // 🔧 SEMPRE INCLUI (vazio ou com número sem código país)
+      phoneNumber: phoneData.phoneNumber,   // 🔧 SEMPRE INCLUI (vazio ou com número sem código país)
       email: email,
       user: userData,
       contacts: [
@@ -649,23 +700,20 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       ]
     };
 
-    // 🔧 ADICIONAR CAMPOS DE TELEFONE CONDICIONALMENTE
-    if (phoneData.internationalPhoneNumber && phoneData.internationalPhoneNumber !== '') {
-      // Para números internacionais: APENAS internationalPhoneNumber
-      crmPayload.internationalPhoneNumber = phoneData.internationalPhoneNumber;
-      console.log(`🌍 PAYLOAD INTERNACIONAL: Adicionando apenas internationalPhoneNumber`);
-    } else if (phoneData.cellNumber || phoneData.phoneNumber) {
-      // Para números brasileiros: cellNumber e phoneNumber
-      crmPayload.cellNumber = phoneData.cellNumber || '';
-      crmPayload.phoneNumber = phoneData.phoneNumber || '';
-      console.log(`🇧🇷 PAYLOAD BRASILEIRO: Adicionando cellNumber e phoneNumber`);
-    }
-
     // Adiciona observation apenas se não estiver vazio
     if (observationValue && observationValue.trim() !== '') {
       crmPayload.observation = observationValue;
       crmPayload.observationLead = observationValue.substring(0, 150);
     }
+    
+    console.log(`🔧 PAYLOAD CRIADO:`, {
+      isInternational: phoneData.isInternational,
+      countryName: phoneData.countryName,
+      cellNumber: crmPayload.cellNumber,
+      phoneNumber: crmPayload.phoneNumber,
+      cellNumberLength: crmPayload.cellNumber.length,
+      hasObservation: !!crmPayload.observation
+    });
     
     return crmPayload;
     
@@ -688,12 +736,11 @@ async function sendToCrm(contactData, crmPayload) {
       // 🔧 LOG DO PAYLOAD FINAL ANTES DO ENVIO
       console.log(`🔍 PAYLOAD FINAL PARA CRM:`, JSON.stringify(crmPayload, null, 2));
       console.log(`🔍 VERIFICAÇÃO CAMPOS:`, {
-        temCellNumber: 'cellNumber' in crmPayload,
-        temPhoneNumber: 'phoneNumber' in crmPayload,
-        temInternationalPhoneNumber: 'internationalPhoneNumber' in crmPayload,
-        cellNumberValue: crmPayload.cellNumber,
-        phoneNumberValue: crmPayload.phoneNumber,
-        internationalPhoneNumberValue: crmPayload.internationalPhoneNumber
+        cellNumber: crmPayload.cellNumber,
+        cellNumberLength: crmPayload.cellNumber ? crmPayload.cellNumber.length : 0,
+        phoneNumber: crmPayload.phoneNumber,
+        phoneNumberLength: crmPayload.phoneNumber ? crmPayload.phoneNumber.length : 0,
+        hasObservation: !!crmPayload.observation
       });
       
       const response = await axios.post(CONFIG.crmApiUrl, crmPayload, {
@@ -971,7 +1018,7 @@ async function processBuffer() {
           source: crmPayload.source,
           cellNumber: crmPayload.cellNumber,
           phoneNumber: crmPayload.phoneNumber,
-          internationalPhoneNumber: crmPayload.internationalPhoneNumber,
+          cellNumberLength: crmPayload.cellNumber ? crmPayload.cellNumber.length : 0,
           email: crmPayload.email,
           userId: crmPayload.user.id,
           hasObservation: !!crmPayload.observation,
