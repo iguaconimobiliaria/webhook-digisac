@@ -404,7 +404,7 @@ function extractUserIdFromTickets(tickets) {
   return mappedUserId || 1; // Admin como fallback
 }
 
-// 🔧 FUNÇÃO CORRIGIDA - formatPhoneNumber para números internacionais
+// 🔧 FUNÇÃO CORRIGIDA - formatPhoneNumber SEM COLISÃO
 function formatPhoneNumber(number) {
   if (!number) return { 
     cellNumber: '', 
@@ -463,22 +463,24 @@ function formatPhoneNumber(number) {
       // Verifica tamanho mínimo após código do país
       if (nationalPart.length >= 7) {
         const limitedNumber = cleanNumber.substring(0, 15);
-        const numberWithoutCountryCode = limitedNumber.substring(countryCode.length);
         
-        // 🔧 FORÇA LIMITE DE 11 CARACTERES para cellNumber
-        const cellNumberForCrm = numberWithoutCountryCode.substring(0, 11);
+        // 🔧 NOVA ESTRATÉGIA: USAR NÚMERO COMPLETO COM PREFIXO PARA EVITAR COLISÃO
+        // Em vez de remover o código do país, vamos usar um prefixo único
+        const uniqueNumber = `9${limitedNumber}`; // Prefixo 9 + número completo
+        const cellNumberForCrm = uniqueNumber.substring(0, 11); // Máximo 11 chars
         
-        console.log(`🌍 NÚMERO INTERNACIONAL DETECTADO:`, {
+        console.log(`🌍 NÚMERO INTERNACIONAL DETECTADO (NOVA ESTRATÉGIA):`, {
           pais: countryName,
           codigoPais: countryCode,
           numeroCompleto: limitedNumber,
-          numeroSemCodigo: numberWithoutCountryCode,
+          numeroComPrefixo: uniqueNumber,
           cellNumberParaCRM: cellNumberForCrm,
-          tamanhoFinal: cellNumberForCrm.length
+          tamanhoFinal: cellNumberForCrm.length,
+          estrategia: 'PREFIXO 9 + NÚMERO COMPLETO'
         });
         
         return {
-          cellNumber: cellNumberForCrm,  // 🔧 SEM os 2 primeiros dígitos, máximo 11 chars
+          cellNumber: cellNumberForCrm,  // 🔧 PREFIXO 9 + número completo (máximo 11 chars)
           phoneNumber: cellNumberForCrm, // 🔧 Mesmo valor
           internationalPhoneNumber: '',  // 🔧 Vazio para não duplicar
           isInternational: true,
@@ -686,8 +688,8 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       classification: "High",
       interestedIn: "buy",
       source: source,
-      cellNumber: phoneData.cellNumber,     // 🔧 SEMPRE INCLUI (vazio ou com número sem código país)
-      phoneNumber: phoneData.phoneNumber,   // 🔧 SEMPRE INCLUI (vazio ou com número sem código país)
+      cellNumber: phoneData.cellNumber,     // 🔧 SEMPRE INCLUI (vazio ou com número único)
+      phoneNumber: phoneData.phoneNumber,   // 🔧 SEMPRE INCLUI (vazio ou com número único)
       user: userData,
       contacts: [
         {
@@ -713,7 +715,7 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       crmPayload.observationLead = observationValue.substring(0, 150);
     }
     
-    console.log(`🔧 PAYLOAD CRIADO:`, {
+    console.log(`🔧 PAYLOAD CRIADO (ANTI-COLISÃO):`, {
       isInternational: phoneData.isInternational,
       countryName: phoneData.countryName,
       cellNumber: crmPayload.cellNumber,
@@ -721,7 +723,8 @@ async function transformToCrmFormat(contactData, digisacApiData, contactTickets)
       cellNumberLength: crmPayload.cellNumber.length,
       hasEmail: !!crmPayload.email,
       emailValue: crmPayload.email || 'NÃO ENVIADO',
-      hasObservation: !!crmPayload.observation
+      hasObservation: !!crmPayload.observation,
+      estrategiaAntiColisao: phoneData.isInternational ? 'PREFIXO 9 + NÚMERO COMPLETO' : 'NÚMERO BRASILEIRO NORMAL'
     });
     
     return crmPayload;
@@ -743,7 +746,7 @@ async function sendToCrm(contactData, crmPayload) {
       console.log(`🚀 Enviando dados para CRM - Contato: ${contactData.id}`);
       
       // 🔧 LOG DO PAYLOAD FINAL ANTES DO ENVIO
-      console.log(`🔍 PAYLOAD FINAL PARA CRM:`, JSON.stringify(crmPayload, null, 2));
+      console.log(`🔍 PAYLOAD FINAL PARA CRM (ANTI-COLISÃO):`, JSON.stringify(crmPayload, null, 2));
       console.log(`🔍 VERIFICAÇÃO CAMPOS:`, {
         cellNumber: crmPayload.cellNumber,
         cellNumberLength: crmPayload.cellNumber ? crmPayload.cellNumber.length : 0,
@@ -751,7 +754,8 @@ async function sendToCrm(contactData, crmPayload) {
         phoneNumberLength: crmPayload.phoneNumber ? crmPayload.phoneNumber.length : 0,
         hasEmail: 'email' in crmPayload,
         emailValue: crmPayload.email || 'CAMPO NÃO EXISTE',
-        hasObservation: !!crmPayload.observation
+        hasObservation: !!crmPayload.observation,
+        antiColisao: crmPayload.cellNumber.startsWith('9') ? 'ATIVO (PREFIXO 9)' : 'INATIVO (NÚMERO BRASILEIRO)'
       });
       
       const response = await axios.post(CONFIG.crmApiUrl, crmPayload, {
@@ -1022,7 +1026,7 @@ async function processBuffer() {
     for (const { contactData, crmPayload } of contactsToSend) {
       try {
         // 🔧 LOG DETALHADO ANTES DO ENVIO
-        console.log(`🔄 Dados transformados para CRM:`, {
+        console.log(`🔄 Dados transformados para CRM (ANTI-COLISÃO):`, {
           contactId: contactData.id,
           name: crmPayload.name,
           classification: crmPayload.classification,
@@ -1034,7 +1038,8 @@ async function processBuffer() {
           emailValue: crmPayload.email || 'CAMPO NÃO EXISTE',
           userId: crmPayload.user.id,
           hasObservation: !!crmPayload.observation,
-          observationLength: crmPayload.observation ? crmPayload.observation.length : 0
+          observationLength: crmPayload.observation ? crmPayload.observation.length : 0,
+          antiColisao: crmPayload.cellNumber.startsWith('9') ? 'ATIVO (PREFIXO 9)' : 'INATIVO (NÚMERO BRASILEIRO)'
         });
         
         await sendToCrm(contactData, crmPayload);
